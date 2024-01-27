@@ -18,14 +18,21 @@
 
 #define _USE_MATH_DEFINES
 
-#define  FASTVERSION //quicker version by merging some function
-#define  PARTICLES_AS_BOUNDARIES //work only if fatsversion defined
-#define ADAPTATIVE_TIME //work only if fatsversion defined
+#define  FASTVERSION //faster version by merging some function
+//#define PARALLEL_CPU_VERSION // faster version than FASTVERSION
+
+//#define ADAPTATIVE_TIME //work only if fatsversion defined
+#define VISCOELASTIC
+//#define SAVEIMAGES
+#ifndef VISCOELASTIC
+#endif
+//#define  PARTICLES_AS_BOUNDARIES //work only if fast version defined
+
 
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-
+#include <omp.h>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -35,13 +42,18 @@
 #ifndef M_PI
 #define M_PI 3.141592
 #endif
+
+#define NUM_BOUNDARY_LAYER 0
+#ifdef PARTICLES_AS_BOUNDARIES
 #ifndef ADAPTATIVE_TIME
 #define NUM_BOUNDARY_LAYER 2
 #endif
 
 #ifdef ADAPTATIVE_TIME
-#define NUM_BOUNDARY_LAYER 3
+#define NUM_BOUNDARY_LAYER 2
 #endif
+#endif
+
 
 #include "Vector.hpp"
 typedef Vec2f vec;
@@ -67,11 +79,11 @@ const int kViewScale = 15;
 // SPH Kernel function: cubic spline
 class CubicSpline {
 public:
-  explicit CubicSpline(const Real h=1) : _dim(2)
+  explicit CubicSpline(const Real& h =1.0f) : _dim(2)
   {
     setSmoothingLen(h);
   }
-  void setSmoothingLen(const Real h)
+  void setSmoothingLen(const Real& h)
   {
     const Real h2 = square(h), h3 = h2*h;
     _h = h;
@@ -147,21 +159,35 @@ class Particle {
 class SphSolver {
 public:
   explicit SphSolver(
-    const Real nu=0.01, const Real h=0.5, const Real density=1e3,
-    const Vec2f g=Vec2f(0, -9.8), const Real eta=0.01, const Real gamma=7.0) :
+    const Real nu=0.01, const Real h=0.5f, const Real density=1e3,
+    const Vec2f g=Vec2f(0, -9.8), const Real eta=0.01f, const Real gamma=7.0,
+    const Real sigma = 1.f, const Real beta = 1.f, const Real L0 = 0.5f, const Real k_spring = 0.9f, const Real alpha = 0.9f) :
     _kernel(h), _nu(nu),_h(h), _d0(density),
-    _g(g), _eta(eta), _gamma(gamma)
+    _g(g), _eta(eta), _gamma(gamma),
+	//visoelastic constant
+	_sigma(sigma), _beta(beta), _L0(L0), _k_spring(k_spring), _alpha(alpha)
   {
-	  _dt = 0.0005f;
+	  _dt = 0.0004f;
 
-#ifdef ADAPTATIVE_TIME
-	  _dt = 0.f;
-#endif
+
 
     _m0 = _d0*_h*_h;
     _c = std::fabs(_g.y)/_eta;
     _k = _d0*_c*_c/_gamma;
-	_maxVel = std::fabs(_g.length());;
+	_maxVel = std::fabs(_g.length());
+	//viscoelastic constant
+#ifdef VISCOELASTIC
+	_d0 = 10.f;
+	_dt = 0.02f;
+	_k = 4.f;
+	_k_spring = 0.1f;
+	_alpha = 0.1f;
+	_h = 1.5f;
+#endif
+	_kNear = _k * 10.f;
+#ifdef ADAPTATIVE_TIME
+		_dt = 0.0f;
+#endif
   }
 
   // assume an arbitrary grid with the size of res_x*res_y; a fluid mass fill up
@@ -175,20 +201,26 @@ public:
 	
 	boundaryOffset =0.0f;
 
-  	// set wall for boundary
+  /*	// set wall for boundary
     _l = 0.5*_h - boundaryOffset;
     _r = static_cast<Real>(res_x) - 0.5*_h + boundaryOffset;
     _b = 0.5*_h - boundaryOffset;
-    _t = static_cast<Real>(res_y) - 0.5*_h + boundaryOffset;
+    _t = static_cast<Real>(res_y) - 0.5*_h + boundaryOffset;*/
+
+  	// set wall for boundary
+	_l = 0.25  - boundaryOffset;
+	_r = static_cast<Real>(res_x) - 0.25  + boundaryOffset;
+	_b = 0.25  - boundaryOffset;
+	_t = static_cast<Real>(res_y) - 0.25  + boundaryOffset;
 
 
     // sample a fluid mass
     for(int j=0; j<f_height; ++j) {
       for(int i=0; i<f_width; ++i) {
-        _pos.push_back(Vec2f(i+0.25f+2*_h, j+0.25f+2*_h));
-        _pos.push_back(Vec2f(i+0.75f+2*_h, j+0.25f+2*_h));
-        _pos.push_back(Vec2f(i+0.25f+2*_h, j+0.75f+2*_h));
-        _pos.push_back(Vec2f(i+0.75f+2*_h, j+0.75f+2*_h));
+        _pos.push_back(Vec2f(i+0.25f+ NUM_BOUNDARY_LAYER *_h, j+0.25f+ NUM_BOUNDARY_LAYER *_h));
+        _pos.push_back(Vec2f(i+0.75f+ NUM_BOUNDARY_LAYER *_h, j+0.25f+ NUM_BOUNDARY_LAYER *_h));
+        _pos.push_back(Vec2f(i+0.25f+ NUM_BOUNDARY_LAYER *_h, j+0.75f+ NUM_BOUNDARY_LAYER *_h));
+        _pos.push_back(Vec2f(i+0.75f+ NUM_BOUNDARY_LAYER *_h, j+0.75f+ NUM_BOUNDARY_LAYER *_h));
       }
     }
 	Real p = _h/2.f;
@@ -255,22 +287,28 @@ public:
     _acc = std::vector<Vec2f>(_pos.size(), Vec2f(0, 0));
     _p   = std::vector<Real>(_pos.size(), 0);
     _d   = std::vector<Real>(_pos.size(), 0);
-
     _col = std::vector<float>(_pos.size()*4, 1.0); // RGBA
     _vln = std::vector<float>(_pos.size()*4, 0.0); // GL_LINES
+	_dNear = std::vector<Real>(_pos.size(), 0);
+	_pNear = std::vector<Real>(_pos.size(), 0);
+	_posPrevious = _pos;
+	std::vector<Real> lzero = std::vector<Real>(_pos.size(), 0);
+	_L = std::vector<std::vector<Real>>(_pos.size() , lzero);
+
 
     updateColor();
 	std::cout<<"Total Number of particle : "<<particleCount() << " | Number of non boundary particles : " << particleCount() - _particleBoundariesNumber << " |  Number of boundary particles : " << _particleBoundariesNumber << std::endl;
 
   }
-
+  int n = 0;
   void update()
   {
 
     std::cout << '.' << std::flush;
-	
-  	buildCellsNeighborhoud();
+  	
 #ifndef FASTVERSION
+#ifndef VISCOELASTIC
+	buildCellsNeighborhoud();
     computeDensity();
     computePressure();
 	_acc = std::vector<Vec2f>(_pos.size(), Vec2f(0, 0));
@@ -284,25 +322,68 @@ public:
 	updateColor();
 	if (gShowVel) updateVelLine();
 #endif
+#endif
 #ifdef FASTVERSION
-	
-  	computeStates();
+
+#ifndef  PARALLEL_CPU_VERSION
+#ifndef VISCOELASTIC
+	buildCellsNeighborhoud();
+	//computeAllNeighbors();
+  	computePressureDensity();
 	applyForcesAndComputePosition();
+#endif
+#endif
+
+#ifdef PARALLEL_CPU_VERSION
+  	#ifndef VISCOELASTIC
+	buildCellsNeighborhoud_parallel();
+	computeAllNeighbors_parallel();
+	computePressureDensity_parallel();
+	parallelApplyForcesAndComputePosition();
+#endif
+#endif
+
+
 
 #ifdef ADAPTATIVE_TIME
-	/*if(isFirstStep)
+	if(isFirstStep)
 	{
-	_maxVel += std::fabs(_g.length());
+	_maxVel += _g.length()*100;
 		isFirstStep = false;
 	}
   	else
 	{
-		//_maxVel += _dt * std::fabs(_g.length());// / (_h * 0.4f);
-	}*/
-	_dt = (0.09f * _h) / _maxVel; //CFL condition
+		_maxVel += _g.length();
+	}
+	_dt = (0.04f * _h) / _maxVel; //CFL condition
 	//std::cout << "Vmax=" << _maxVel <<" dt="<<_dt<< std::flush;
-
 	_maxVel = 0.f;
+	n++;
+#endif
+
+#ifdef VISCOELASTIC
+#ifdef PARALLEL_CPU_VERSION
+	buildCellsNeighborhoud_parallel();
+	computeAllNeighbors_parallel();
+#endif
+#ifndef PARALLEL_CPU_VERSION
+	buildCellsNeighborhoud();
+	computeAllNeighbors();
+	//computeAllNeighborsSimple();
+#endif
+
+	computeVelocities_viscoelsatic();
+	updatePosition_viscoelastic();
+	//heree put adjustspring and applyspringdisplacement Sans le spring adjust les particule se repoussent entre elles
+	//adjustSprings();
+	//applySpringDisplacements();
+
+	computePressureDoubleDensity();
+	//here resoolve collision
+	resolveCollisionBoundary();
+
+	//last
+	updateNextVelocityAndColors_viscoelastic();
 #endif
 
 
@@ -317,6 +398,7 @@ public:
 
   int resX() const { return _resX; }
   int resY() const { return _resY; }
+#ifdef ADAPTATIVE_TIME
   Real getLoopNum()
   {
 	  if (isFirstStep){
@@ -327,17 +409,496 @@ public:
 	  std::cout << " loop num = " << static_cast<int> (0.01 / _dt) << std::endl;
 	  return static_cast<int> (0.1 / _dt);
   }
-
+#endif
 
 private:
-	void computeStates()
+
+
+
+
+	void computeVelocities_viscoelsatic()
+	{
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp parallel for
+#endif
+		for (int i = 0; i < particleCount(); ++i) {
+			if (!isBoundary(i)) 
+				_vel[i] += _g * _dt;
+			//applyViscosity_viscoelastic(i); //TODO : put the code here for better performences
+		}
+	}
+
+
+	void applyViscosity_viscoelastic(const int& i)
+	{
+
+		for (const tIndex& j : _neighborsOf[i]) {
+			if(i <j)
+			{
+				Vec2f r_ij = _pos[i] - _pos[j];
+				Real q = r_ij.length() / _h;
+				if(q<1)
+				{
+					Real u = (_vel[i] - _vel[j]).dotProduct(r_ij);
+					if(u>0)
+					{
+						Vec2f I = _dt * (1 - q) * ((_sigma * u) + (_beta * u * u) )* r_ij;
+						if (!isBoundary(i)) 
+							_vel[i] -= I / 2.f;
+						if (!isBoundary(j)) 
+							_vel[j] += I / 2.f;
+					}
+				}
+			}
+
+		}
+	}
+	void updatePosition_viscoelastic()
+	{
+		_posPrevious = _pos;
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp parallel for
+#endif
+		for (int i = 0; i < particleCount(); ++i)
+		{
+			if (!isBoundary(i)) 
+			_pos[i] += _dt * _vel[i];
+		}
+		
+	}
+
+	void updateNextVelocityAndColors_viscoelastic()
+	{
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp parallel for
+#endif
+		for (int i = 0; i < particleCount(); ++i)
+		{
+			if (!isBoundary(i))
+				_vel[i] = (_pos[i] - _posPrevious[i]) / _dt;
+
+			//update colors
+			_col[i * 4 + 0] = 0.6;
+			_col[i * 4 + 1] = 0.6;
+			_col[i * 4 + 2] = (_d[i]+ _dNear[i]) / _d0;
+
+			//update velocity lines
+			_vln[i * 4 + 0] = _pos[i].x;
+			_vln[i * 4 + 1] = _pos[i].y;
+			_vln[i * 4 + 2] = _pos[i].x + _vel[i].x;
+			_vln[i * 4 + 3] = _pos[i].y + _vel[i].y;
+
+		}
+	}
+
+	void adjustSprings()
+	{
+		float q, d;
+#pragma omp parallel for collapse(2) // Fusionner les deux boucles for imbriquées
+		for (int i = 0; i < particleCount(); ++i)
+		{
+			for (int j = 0; j < particleCount(); ++j)
+			{
+				if (_L[i][j] == 0.f)
+					_L[i][j] = _h;
+				d = _gamma * _L[i][j];
+				Real r_ij_length = (_pos[i] - _pos[j]).length();
+				if (r_ij_length > _L0 + d)
+				{
+					_L[i][j] = _L[i][j] + _dt * _alpha * (r_ij_length - _L0 - d);
+				}
+				else if (r_ij_length < _L0 - d)
+				{
+					_L[i][j] -=  _dt * _alpha * (_L0 - d - r_ij_length);
+				}
+			}
+		}
+		//remove spring
+#pragma omp parallel for collapse(2) // Fusionner les deux boucles for imbriquées
+		for (int i = 0; i < particleCount(); ++i)
+		{
+			for (int j = 0; j < particleCount(); ++j)
+			{
+				if (_L[i][j] > _h)
+					_L[i][j] = 0.f;
+			}
+		}
+	}
+
+	void applySpringDisplacements()
+	{
+		Vec2f D;
+#pragma omp parallel for collapse(2) // Fusionner les deux boucles for imbriquées
+		for (int i = 0; i < particleCount(); ++i)
+		{
+			for (int j = 0; j < particleCount(); ++j)
+			{
+				Vec2f r_ij = _pos[i] - _pos[j];
+				D = _dt * _dt * _k_spring * (1 - _L[i][j] / _h) * (_L[i][j] - r_ij.length()) * r_ij;
+				_pos[i] -= D / 2;
+				_pos[j] += D / 2;
+			}
+		}
+
+	}
+
+	void computePressureDoubleDensity() {
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp parallel for
+#endif
+		for (tIndex i = 0; i < particleCount(); ++i) {
+			//Vec2f r_ij = _pos[i] - _pos[i];  // Auto-influence
+			Vec2f r_ij; 
+			Real q;// = r_ij.length() / _h;
+			Real density = 0;
+			Real densityNear = 0;
+			/*if (q < 1) {
+				density += (1 - q) * (1 - q);
+				densityNear += (1 - q) * (1 - q) * (1 - q);
+			}*/
+			//for (const tIndex& j : getNeighbors_parallel(i)) {
+			std::vector<tIndex> neigh = _neighborsOf[i];
+			//std::cout << "particle[" << i << "] neighNumber=" << neigh.size() << std::endl;
+			for (const tIndex& j : neigh) {
+				r_ij = _pos[i] - _pos[j];
+				q = r_ij.length() /_h;
+				//std::cout << "q=" << q << std::endl;
+				if (q < 1) {
+					density += (1 - q) * (1 - q);
+					densityNear +=  (1 - q) * (1 - q) * (1 - q);
+				}
+			}
+
+			_d[i] = density;
+			_dNear[i] = densityNear;
+			//std::cout << "Density=" << density << "  DensityNear=" << densityNear << std::endl;
+
+			Real P = std::max(_k * (density - _d0), 0.0f);
+			Real PNear = std::max(_kNear * densityNear, 0.0f);
+			_p[i] = P;
+			_pNear[i] = PNear;
+
+			Vec2f dx(0.f, 0.f);
+			for (const tIndex& j : _neighborsOf[i]) {
+				r_ij = _pos[i] - _pos[j];  // Auto-influence
+				Real q = r_ij.length() /_h;
+				//std::cout << "q=" << q << std::endl;
+				if (q < 1) {
+					Vec2f D =  _dt * _dt *((P * (1 - q)) + (PNear * (1 - q) * (1 - q))) * r_ij;
+					if (!isBoundary(j)) 
+						_pos[j] += D / 2;
+					dx -= D / 2;
+				}
+			}
+
+			if (!isBoundary(i)) 
+				_pos[i] += dx;
+		}
+	}
+
+	/*
+	 *Cette méthode est relativement simple à paralléliser car chaque particule est traitée indépendamment.
+	 *Cependant, il faut faire attention à l'ajout dans _pidxInGrid car plusieurs threads pourraient essayer de modifier la même cellule en même temps.
+	 */
+	void buildCellsNeighborhoud_parallel() {
+		_pidxInGrid.clear();
+		_pidxInGrid.resize(resX() * resY());
+		#pragma omp parallel for
+		for (int i = 0; i < particleCount(); ++i) {
+			int cellX = static_cast<int>(_pos[i].x);
+			int cellY = static_cast<int>(_pos[i].y);
+
+			if (cellX >= 0 && cellX < _resX && cellY >= 0 && cellY < _resY) {
+				#pragma omp critical
+				_pidxInGrid[idx1d(cellX, cellY)].push_back(i);
+			}
+		}
+	}
+	std::vector<tIndex> getNeighbors_parallel(tIndex particleIndex) {
+		std::vector<tIndex> neighbors;
+		const Vec2f& pos = _pos[particleIndex];
+		const Real supportRadiusSquared = _kernel.supportRadius() * _kernel.supportRadius();
+		int MAX_NEIGHBORS = 100; //1 cells can approximately contain 5 by 5 particle. Multiple by 9 for a block of neighbour
+		neighbors.reserve(MAX_NEIGHBORS);  // Estimation de la taille
+		int cellX = static_cast<int>(pos.x);
+		int cellY = static_cast<int>(pos.y);
+		#pragma omp parallel for collapse(2) // Fusionner les deux boucles for imbriquées
+		for (int i = -1; i <= 1; ++i) {
+			for (int j = -1; j <= 1; ++j) {
+				int neighborCellX = cellX + i;
+				int neighborCellY = cellY + j;
+
+				if (neighborCellX >= 0 && neighborCellX < _resX && neighborCellY >= 0 && neighborCellY < _resY) {
+					const std::vector<tIndex>& cell = _pidxInGrid[idx1d(neighborCellX, neighborCellY)];
+					#pragma omp parallel for
+					for (int k = 0; k < cell.size(); ++k) {
+						tIndex neighborIndex = cell[k];
+						Vec2f diff = pos - _pos[neighborIndex];
+						if (neighborIndex != particleIndex && diff.lengthSquare() < supportRadiusSquared) {
+							neighbors.push_back(neighborIndex);
+						}
+					}
+					
+				}
+			}
+		}
+		return neighbors;
+	}
+	void computeAllNeighbors_parallel() {
+		_neighborsOf.clear();
+		_neighborsOf.resize(particleCount() );
+
+		#pragma omp parallel for
+		for (tIndex i = 0; i < particleCount(); ++i) {
+			std::vector<tIndex> neighbors = getNeighbors_parallel(i); // Calcul local des voisins
+			#pragma omp critical
+			_neighborsOf[i] = neighbors; // Mise à jour sécurisée de la structure partagée
+			//_neighborsOf.push_back(neighbors);
+		}
+	}
+
+	void  computeAllNeighborsSimple() {
+		_neighborsOf.clear();
+		_neighborsOf.resize(particleCount());
+
+		for (tIndex i = 0; i < particleCount(); ++i) {
+			std::vector<tIndex> neighbors;
+			for (tIndex j = 0; j < particleCount(); j++)
+			{
+				Vec2f r_ij = _pos[i] - _pos[j];
+				if (std::fabsf(r_ij.length()) < _h)
+				{
+					neighbors.push_back(j);
+				}
+			}
+			_neighborsOf[i] = neighbors;
+		}
+	}
+
+
+	/**
+	 *Cette méthode peut également être parallélisée. Chaque particule calcule sa propre densité et pression, donc il n'y a pas de conflit entre les threads.
+	 */
+	void computePressureDensity_parallel() {
+
+		#pragma omp parallel for
+		for (tIndex i = 0; i < particleCount(); ++i) {
+			Vec2f r_ij = _pos[i] - _pos[i];  // Auto-influence
+			Real influence = _kernel.w(r_ij);
+			Real density = _m0 * influence;
+			//for (const tIndex& j : getNeighbors_parallel(i)) {
+			for (const tIndex& j : _neighborsOf[i]) {
+					
+				r_ij = _pos[i] - _pos[j];
+				influence = _kernel.w(r_ij);
+				density += _m0 * influence;
+			}
+
+			_d[i] = density;
+			_p[i] = std::max(_k * (pow((density / _d0), _gamma) - 1.0f), 0.f);
+		}
+	}
+
+	void parallelApplyForcesAndComputePosition()
+	{
+#ifndef PARTICLES_AS_BOUNDARIES
+		std::vector<tIndex> need_res; // for collision
+#endif
+		//std::vector<std::vector<tIndex>> local_leakedParticles(omp_get_max_threads());
+		std::vector<std::vector<tIndex>> local_leakedParticles(particleCount());
+		#pragma omp parallel
+		{
+			//int thread_num = omp_get_thread_num();
+			//std::vector<tIndex>& my_leakedParticles = local_leakedParticles[thread_num];
+			Vec2f accel, fpressure, fvisco;
+
+			#pragma omp for nowait
+			for (int i = 0; i < particleCount(); i++) {
+
+				accel = Vec2f(0, 0);
+				fvisco = Vec2f(0, 0);
+				fpressure = Vec2f(0, 0);
+				Vec2f r_ij = _pos[i] - _pos[i];  // Auto-influence
+				Vec2f u_ij = _vel[i] - _vel[i]; // Auto-influence
+				Vec2f gradW = _kernel.grad_w(r_ij);
+				/*fpressure = gradW *  2 * ((_p[i] / (_d[i] * _d[i])));
+				Real denom = r_ij.dotProduct(r_ij) + (0.01 * _h * _h);
+				fvisco = ((_m0 / _d[i])) * u_ij * (r_ij.dotProduct(gradW) / denom);*/
+				//density et pressure
+				Real influence = _kernel.w(r_ij);
+				Real density = _m0 * influence;
+				for (const tIndex& j : _neighborsOf[i]) {
+
+					r_ij = _pos[i] - _pos[j];
+					influence = _kernel.w(r_ij);
+					density += _m0 * influence;
+				}
+
+				_d[i] = density;
+				_p[i] = std::max(_k * (pow((density / _d0), _gamma) - 1.0f), 0.f);
+
+#ifdef PARTICLES_AS_BOUNDARIES
+				if (!isBoundary(i)) {
+#endif
+					//for (const tIndex& j : getNeighbors_parallel(i)) {
+					for (const tIndex& j : _neighborsOf[i]) {
+						r_ij = _pos[i] - _pos[j];
+						Vec2f u_ij = _vel[i] - _vel[j];
+						gradW = _kernel.grad_w(r_ij);
+						//pressure
+						fpressure += gradW * ((_p[i] / (_d[i] * _d[i])) + (_p[j] / (_d[j] * _d[j])));
+
+						//Viscosity
+						// avoid to divide by 0
+						Real denom = r_ij.dotProduct(r_ij) + (0.01 * _h * _h);
+						if (denom != 0.0f) {
+							fvisco += ((_m0 / _d[j])) * u_ij * (r_ij.dotProduct(gradW) / denom);
+						}
+					}
+#ifdef PARTICLES_AS_BOUNDARIES
+				}
+#endif
+
+
+#ifdef PARTICLES_AS_BOUNDARIES
+				if (!isBoundary(i)) {// update position if not a boundary
+					accel += _g - fpressure + (2.0 * _nu * fvisco);
+					//update velocity
+
+//#pragma omp critical
+					{
+						_vel[i] += _dt * accel;
+						_pos[i] += _dt * _vel[i];
+					}
+
+
+
+#ifdef ADAPTATIVE_TIME
+					//update max velocity (for _dt adapatation )
+					if (_vel[i].length() > _maxVel)
+						_maxVel = _vel[i].length() ;
+
+
+
+					if (checkLeak(i) ) {
+
+						bool isAlreadyLeaked = false;
+						for (tIndex leak : leakedParticles)
+						{
+							if (leak == i) {
+								isAlreadyLeaked = true;
+
+							}
+						}
+						if (!isAlreadyLeaked) {
+							leakedParticles.push_back(i);
+							std::cout << "A leak happened - Number of lost particle  : " << getLeakNumber() << std::endl;
+
+						}
+
+					}
+#endif
+				}
+
+				
+				/*if (checkLeak(i) && !isBoundary(i)) {
+					bool isAlreadyLeaked = false;
+					for (tIndex leak : my_leakedParticles)
+					{
+						if (leak == i) 
+							isAlreadyLeaked = true;
+					}
+
+					if (!isAlreadyLeaked) {
+						my_leakedParticles.push_back(i);
+						std::cout << "A leak happened - Number of lost particle  : " << getLeakNumber() << std::endl;
+
+					}
+				}
+
+
+				for (const auto& thread_leaks : local_leakedParticles) {
+					for (tIndex leak : thread_leaks) {
+						leakedParticles.push_back(leak);
+					}
+				}*/
+#endif
+
+#ifndef PARTICLES_AS_BOUNDARIES
+				_pos[i] += _dt * _vel[i];
+				//collision gesture
+				if (_pos[i].x<_l || _pos[i].y<_b || _pos[i].x>_r || _pos[i].y>_t)
+					need_res.push_back(i);
+				for (
+					std::vector<tIndex>::const_iterator it = need_res.begin();
+					it < need_res.end();
+					++it) {
+					const Vec2f p0 = _pos[*it];
+					_pos[*it].x = clamp(_pos[*it].x, _l, _r);
+					_pos[*it].y = clamp(_pos[*it].y, _b, _t);
+					_vel[*it] = (_pos[*it] - p0) / _dt;
+				}
+#endif
+
+
+				//update colors
+				_col[i * 4 + 0] = 0.6;
+				_col[i * 4 + 1] = 0.6;
+				_col[i * 4 + 2] = _d[i] / _d0;
+
+
+
+				//update Velocity lines
+				if (gShowVel) {
+					_vln[i * 4 + 0] = _pos[i].x;
+					_vln[i * 4 + 1] = _pos[i].y;
+					_vln[i * 4 + 2] = _pos[i].x + _vel[i].x;
+					_vln[i * 4 + 3] = _pos[i].y + _vel[i].y;
+				}
+				
+			}
+			
+		}
+	
+	}
+
+
+	void buildCellsNeighborhoud() {
+		// Initialisation : nettoyer les anciennes données
+		_pidxInGrid.clear();
+		_pidxInGrid.resize(resX() * resY());
+
+		// assign cell to each particle
+		for (int i = 0; i < particleCount(); ++i) {
+			int cellX = static_cast<int>(_pos[i].x);
+			int cellY = static_cast<int>(_pos[i].y);
+
+			if (cellX >= 0 && cellX < (_resX) && cellY >= 0 && cellY < (_resY)) {
+				_pidxInGrid[idx1d(cellX, cellY)].push_back(i);
+
+			}
+		}
+	}
+
+	void computeAllNeighbors() {
+		_neighborsOf.clear();
+		_neighborsOf.resize(particleCount());
+
+		for (tIndex i = 0; i < particleCount(); ++i) {
+			std::vector<tIndex> neighbors = getNeighbors(i); // Calcul local des voisins
+			_neighborsOf[i] = neighbors; // Mise à jour sécurisée de la structure partagée
+			//_neighborsOf.push_back(neighbors);
+		}
+	}
+	void computePressureDensity()
 	{
 		for (tIndex i = 0; i < particleCount(); ++i) {
 			//density compute
 			Vec2f r_ij = _pos[i] - _pos[i];  // Distance entre la particule i et j
 			Real influence = _kernel.w(r_ij);
 			Real density = _m0 * influence;
-			for (const tIndex& j : getNeighbors(i)) {
+			std::vector<tIndex> neigh = getNeighbors(i);
+			for (const tIndex& j : neigh) {
 				Vec2f r_ij = _pos[i] - _pos[j];  // Distance entre la particule i et j
 				Real influence = _kernel.w(r_ij);
 				density += _m0 * influence;
@@ -348,35 +909,39 @@ private:
 			//pressure compute
 			_p[i] = std::max(_k * ((float)pow((density / _d0), _gamma) - 1.0f), 0.0f);
 		}
-		
-	}
 
+
+
+	}
 	void applyForcesAndComputePosition()
 	{
-		std::vector<tIndex> need_res; // for collision 
-		Vec2f accel;
-		Vec2f fpressure;
-		Vec2f fvisco;
+#ifndef PARTICLES_AS_BOUNDARIES
+		std::vector<tIndex> need_res; // for collision
+#endif
+
+		int thread_num = omp_get_thread_num();
+		Vec2f accel, fpressure, fvisco;
 		for (int i = 0; i < particleCount(); i++) {
 			accel = Vec2f(0, 0);
 			fpressure = Vec2f(0, 0);
 			fvisco = Vec2f(0, 0);
 
 #ifdef PARTICLES_AS_BOUNDARIES
-			if(!isBoundary(i)){
+			if (!isBoundary(i)) {
 #endif
-				for (const tIndex& j : getNeighbors(i)) {
+				std::vector<tIndex> neigh = getNeighbors(i);
+				for (const tIndex& j : neigh) {
 					Vec2f r_ij = _pos[i] - _pos[j];
 					Vec2f u_ij = _vel[i] - _vel[j];
 					Vec2f gradW = _kernel.grad_w(r_ij);
 					//pressure
-					fpressure += gradW  * ((_p[i] / (_d[i] * _d[i])) + (_p[j] / (_d[j] * _d[j])));
+					fpressure += gradW * ((_p[i] / (_d[i] * _d[i])) + (_p[j] / (_d[j] * _d[j])));
 
 					//Viscosity
 					// avoid to divide by 0
 					Real denom = r_ij.dotProduct(r_ij) + (0.01 * _h * _h);
 					if (denom != 0.0f) {
-						fvisco += ((_m0 / _d[j])) * u_ij *(r_ij.dotProduct(gradW) / denom);
+						fvisco += ((_m0 / _d[j])) * u_ij * (r_ij.dotProduct(gradW) / denom);
 					}
 				}
 #ifdef PARTICLES_AS_BOUNDARIES
@@ -388,37 +953,40 @@ private:
 			if (!isBoundary(i)) {// update position if not a boundary
 				accel += _g - fpressure + (2.0 * _nu * fvisco);
 				//update velocity
+				
 				_vel[i] += _dt * accel;
 				//update position 
+				_pos[i] += _dt * _vel[i];
 				
 #ifdef ADAPTATIVE_TIME
 				//update max velocity (for _dt adapatation )
 				if (_vel[i].length() > _maxVel)
 					_maxVel = _vel[i].length();
-
-				
 #endif
-				
-				_pos[i] += _dt * _vel[i];
 			}
 
 			if (checkLeak(i) && !isBoundary(i)) {
+
 				bool isAlreadyLeaked = false;
 				for (tIndex leak : leakedParticles)
 				{
-					if (leak == i)
+					if (leak == i){
 						isAlreadyLeaked = true;
+
+					}
 				}
-				if (!isAlreadyLeaked){
+				if (!isAlreadyLeaked) {
 					leakedParticles.push_back(i);
 					std::cout << "A leak happened - Number of lost particle  : " << getLeakNumber() << std::endl;
 
 				}
 
-		}
+			}
+
+
 #endif
 
-			
+
 
 
 #ifndef PARTICLES_AS_BOUNDARIES
@@ -442,7 +1010,7 @@ private:
 			_col[i * 4 + 0] = 0.6;
 			_col[i * 4 + 1] = 0.6;
 			_col[i * 4 + 2] = _d[i] / _d0;
-			
+
 
 
 			//update Velocity lines
@@ -455,7 +1023,57 @@ private:
 		}
 
 	}
-	bool isBoundary(const tIndex& p){return (p >=( particleCount() - _particleBoundariesNumber));}
+	
+	
+
+	std::vector<tIndex> getNeighbors(tIndex particleIndex) {
+		std::vector<tIndex> neighbors;
+		const Vec2f& pos = _pos[particleIndex];
+
+		int cellX = static_cast<int>(pos.x);
+		int cellY = static_cast<int>(pos.y);
+		for (int i = -1; i <= 1; ++i) {
+			for (int j = -1; j <= 1; ++j) {
+				int neighborCellX = cellX + i;
+				int neighborCellY = cellY + j;
+
+				if (neighborCellX >= 0 && neighborCellX < _resX && neighborCellY >= 0 && neighborCellY < _resY) {
+					const std::vector<tIndex>& cell = _pidxInGrid[idx1d(neighborCellX, neighborCellY)];
+					for (tIndex neighborIndex : cell) {
+						if (neighborIndex != particleIndex && (pos - _pos[neighborIndex]).length() < _kernel.supportRadius()) {
+							neighbors.push_back(neighborIndex);
+							//_neighborsOf[idx1dnei(cellX, cellY)].push_back(neighborIndex);
+						}
+					}
+				}
+			}
+		}
+		return neighbors;
+	}
+
+	/*void computeAllNeighbors() {
+		_neighborsOf.clear();
+		_neighborsOf.resize(particleCount()*MAX_NEIGHBORS);
+
+		for (tIndex i = 0; i < particleCount(); ++i) {
+			auto neighbors = getNeighbors(i);
+			//_neighborsOf.push_back(neighbors);
+			//_neighborsOf[i] = neighbors; 
+		}
+	}*/
+
+	bool isBoundary(const tIndex& p)
+	{
+#ifdef PARTICLES_AS_BOUNDARIES
+		return (p >=( particleCount() - _particleBoundariesNumber));
+#endif
+
+#ifndef PARTICLES_AS_BOUNDARIES
+	return false;
+#endif
+
+
+	}
 
 	bool checkLeak(const tIndex& i)
 	{
@@ -515,47 +1133,7 @@ private:
 	}
 
 
-	void buildCellsNeighborhoud(){
-	// Initialisation : nettoyer les anciennes données
-	_pidxInGrid.clear();
-	_pidxInGrid.resize(resX()*resY());
-
-	// assign cell to each particle
-	for (size_t i = 0; i < particleCount(); ++i) {
-	  int cellX = static_cast<int>(_pos[i].x );
-	  int cellY = static_cast<int>(_pos[i].y );
-
-	  if (cellX >= 0 && cellX < (_resX ) && cellY >= 0 && cellY < (_resY)) {
-	    _pidxInGrid[idx1d(cellX, cellY)].push_back(i);
-		
-	  }
-
-	}
-
-	}
-	std::vector<tIndex> getNeighbors(tIndex particleIndex){
-
-		std::vector<tIndex> neighbors;
-		int cellX = static_cast<int>(_pos[particleIndex].x );
-		int cellY = static_cast<int>(_pos[particleIndex].y );
-
-		for (int i = -1; i <= 1; ++i) {
-		  for (int j = -1; j <= 1; ++j) {
-		    int neighborCellX = cellX + i;
-		    int neighborCellY = cellY + j;
-
-		    if (neighborCellX >= 0 && neighborCellX < _resX && neighborCellY >= 0 && neighborCellY < _resY) {
-		        const std::vector<tIndex>& cell = _pidxInGrid[idx1d(neighborCellX, neighborCellY)];
-		        for (tIndex neighborIndex : cell) {
-		            if (neighborIndex != particleIndex && (_pos[particleIndex] - _pos[neighborIndex]).length() < _kernel.supportRadius()) {
-		                neighbors.push_back(neighborIndex);
-		            }
-		        }
-		    }
-		  }
-		}
-		return neighbors;
-	}
+	
 	
 
 	void computeDensity()
@@ -569,7 +1147,6 @@ private:
         density += _m0 * influence;
 	    
 	  }
-
 	  _d[i] = density;
 	}
 	}
@@ -682,7 +1259,9 @@ private:
 		}
 	}
 
-  inline tIndex idx1d(const int& i, const int& j) { return i + j*resX(); }
+
+	inline tIndex idx1d(const int& i, const int& j) { return i + j*resX(); }
+	inline tIndex idx1dnei(const int& i, const int& j) { return i + j * MAX_NEIGHBORS; }
 
   const CubicSpline _kernel;
 
@@ -695,6 +1274,7 @@ private:
   std::vector<tIndex> leakedParticles; //lost particles
 
   std::vector< std::vector<tIndex> > _pidxInGrid; // will help you find neighbor particles
+  std::vector<std::vector<tIndex>> _neighborsOf;
 
   std::vector<float> _col;    // particle color; just for visualization
   std::vector<float> _vln;    // particle velocity lines; just for visualization
@@ -703,6 +1283,7 @@ private:
   Real _dt;                     // time step
 
   int _resX, _resY;             // background grid resolution
+  int MAX_NEIGHBORS = 4*4*9; //1 cells can approximately contain 4 by 4 particle. Multiple by 9 for a block of neighbour
 
   tIndex _particleBoundariesNumber;
   // wall
@@ -728,6 +1309,23 @@ private:
 	//For _dt integration
   Real _maxVel;
   Real isFirstStep = true;
+
+
+	//viscoelastic
+
+	Real _kNear;					//EOS near
+  std::vector<Real>  _dNear;	//density near
+  std::vector<Real>  _pNear;	//pressure near
+
+  Real _sigma ;					// viscosity factor ( the high it is the more viscous the fluid would be)
+  Real _beta;					// quadratic dependance compared with vvelocity. Usefull to avoid particle interpenetration by eliminating high intern speed. SHpuld be non nul
+  std::vector<Vec2f> _posPrevious;      // position
+  //Real _L[1000][1000];			//spring length value between two fluid particles
+  std::vector< std::vector<Real> > _L;			//spring length value between two fluid particles
+  Real _L0;						// spring rest length
+  Real _k_spring;				//spring constant
+  Real _alpha;					//plasticity constant
+
 };
 
 SphSolver gSolver(0.08,0.5, 1e3, Vec2f(0, -9.8), 0.01, 7.0);
@@ -946,11 +1544,20 @@ void update(const float currentTime)
 
 		//save a pic after n step
 
-		  int n = gSolver.getLoopNum();// 50; 
+		
+#ifdef ADAPTATIVE_TIME
+#ifdef SAVEIMAGES
+		int n;
+		n= gSolver.getLoopNum();// 50;
 		// solve 10 steps for better stability ( chaque step est un pas de temps )
-		for(int i=0; i<n; ++i)
+		for (int i = 0; i < n; ++i)
+#endif
+
+#endif
+		
 		   gSolver.update();
 	
+#ifdef SAVEIMAGES
 
 		std::stringstream fpath;
 		fpath << "withTimeIntegration2" << std::setw(4) << std::setfill('0') << gSavedCnt++ << ".tga";
@@ -966,6 +1573,8 @@ void update(const float currentTime)
 		fwrite(&TGAhead, sizeof(TGAhead), 1, out);
 		fwrite(&(buf[0]), 3 * w * h, 1, out);
 		fclose(out);
+#endif
+
 	}
 }
 
