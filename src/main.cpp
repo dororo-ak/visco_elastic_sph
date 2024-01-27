@@ -21,12 +21,12 @@
 #define  FASTVERSION //faster version by merging some function
 //#define PARALLEL_CPU_VERSION // faster version than FASTVERSION
 
-//#define ADAPTATIVE_TIME //work only if fatsversion defined
+//#define ADAPTATIVE_TIME 
 #define VISCOELASTIC
 //#define SAVEIMAGES
 #ifndef VISCOELASTIC
+#define  PARTICLES_AS_BOUNDARIES //work only if fast version defined
 #endif
-//#define  PARTICLES_AS_BOUNDARIES //work only if fast version defined
 
 
 
@@ -178,7 +178,7 @@ public:
 	//viscoelastic constant
 #ifdef VISCOELASTIC
 	_d0 = 10.f;
-	_dt = 0.02f;
+	_dt = 0.007f;
 	_k = 4.f;
 	_k_spring = 0.1f;
 	_alpha = 0.1f;
@@ -186,7 +186,7 @@ public:
 #endif
 	_kNear = _k * 10.f;
 #ifdef ADAPTATIVE_TIME
-		_dt = 0.0f;
+  	_dt = 0.0f;
 #endif
   }
 
@@ -223,7 +223,7 @@ public:
         _pos.push_back(Vec2f(i+0.75f+ NUM_BOUNDARY_LAYER *_h, j+0.75f+ NUM_BOUNDARY_LAYER *_h));
       }
     }
-	Real p = _h/2.f;
+	Real p = 0.5f/2.f;
 
 #ifdef PARTICLES_AS_BOUNDARIES
 	_particleBoundariesNumber = 0;
@@ -234,9 +234,9 @@ public:
 
 
 			for (int j = 0; j < NUM_BOUNDARY_LAYER; j++) {
-				_pos.push_back(Vec2f(i + (p), _b + (_h * j)));
+				_pos.push_back(Vec2f(i + (p), _b + (0.5f * j)));
 				_particleBoundariesNumber++;
-				_pos.push_back(Vec2f(i + (3 * p), _b + (_h * j)));
+				_pos.push_back(Vec2f(i + (3 * p), _b + (0.5f * j)));
 				_particleBoundariesNumber++;
 			}
 	}
@@ -245,9 +245,9 @@ public:
         if(i<_r-1){
 
 			for (int j = 0; j < NUM_BOUNDARY_LAYER; j++) {
-				_pos.push_back(Vec2f(i + (p), (_t - (_h * j))));
+				_pos.push_back(Vec2f(i + (p), (_t - (0.5f * j))));
 				_particleBoundariesNumber++;
-				_pos.push_back(Vec2f(i + (3 * p), (_t- (_h * j))));
+				_pos.push_back(Vec2f(i + (3 * p), (_t- (0.5f * j))));
 				_particleBoundariesNumber++;
 			}
 
@@ -259,9 +259,9 @@ public:
         if (i < _t) {
 
 			for (int j = 0; j < NUM_BOUNDARY_LAYER; j++) {
-				_pos.push_back(Vec2f(_l + (_h * j), i + (p)));
+				_pos.push_back(Vec2f(_l + (0.5f * j), i + (p)));
 				_particleBoundariesNumber++;
-				_pos.push_back(Vec2f(_l+ (_h * j), i + (3 * p)));
+				_pos.push_back(Vec2f(_l+ (0.5f * j), i + (3 * p)));
 				_particleBoundariesNumber++;
 			}
 
@@ -271,9 +271,9 @@ public:
         if (i < _t) {
 
 			for (int j = 0; j < NUM_BOUNDARY_LAYER; j++) {
-				_pos.push_back(Vec2f(_r - (_h * j), i + (p)));
+				_pos.push_back(Vec2f(_r - (0.5f * j), i + (p)));
 				_particleBoundariesNumber++;
-				_pos.push_back(Vec2f(_r - (_h * j), i + (3 * p)));
+				_pos.push_back(Vec2f(_r - (0.5f * j), i + (3 * p)));
 				_particleBoundariesNumber++;
 			}
 
@@ -346,6 +346,7 @@ public:
 
 
 #ifdef ADAPTATIVE_TIME
+#ifndef VISCOELASTIC
 	if(isFirstStep)
 	{
 	_maxVel += _g.length()*100;
@@ -359,6 +360,19 @@ public:
 	//std::cout << "Vmax=" << _maxVel <<" dt="<<_dt<< std::flush;
 	_maxVel = 0.f;
 	n++;
+
+#endif
+
+#ifdef VISCOELASTIC
+	
+	//_maxVel += _g.length() * _dt;
+	
+	_dt = (0.4f * _h) / _maxVel; //CFL condition
+	//std::cout << "Vmax=" << _maxVel <<" dt="<<_dt<< std::flush;
+	_maxVel = 0.f;
+	n++;
+#endif
+
 #endif
 
 #ifdef VISCOELASTIC
@@ -424,7 +438,7 @@ private:
 		for (int i = 0; i < particleCount(); ++i) {
 			if (!isBoundary(i)) 
 				_vel[i] += _g * _dt;
-			//applyViscosity_viscoelastic(i); //TODO : put the code here for better performences
+			applyViscosity_viscoelastic(i); //TODO : put the code here for better performences
 		}
 	}
 
@@ -476,6 +490,8 @@ private:
 		{
 			if (!isBoundary(i))
 				_vel[i] = (_pos[i] - _posPrevious[i]) / _dt;
+			if (_vel[i].length() > _maxVel)
+				_maxVel = _vel[i].length();
 
 			//update colors
 			_col[i * 4 + 0] = 0.6;
