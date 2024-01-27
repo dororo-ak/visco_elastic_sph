@@ -161,11 +161,12 @@ public:
   explicit SphSolver(
     const Real nu=0.01, const Real h=0.5f, const Real density=1e3,
     const Vec2f g=Vec2f(0, -9.8), const Real eta=0.01f, const Real gamma=7.0,
-    const Real sigma = 1.f, const Real beta = 1.f, const Real L0 = 0.5f, const Real k_spring = 0.9f, const Real alpha = 0.9f) :
+    const Real sigma = 0.03f, const Real beta = 0.01f, const Real L0 = .5f, const Real k_spring = 0.00001f, const Real alpha = 0.3f, const Real gammaSpring = 0.1f) :
+	//gammaSpring between 0 et 0.2
     _kernel(h), _nu(nu),_h(h), _d0(density),
     _g(g), _eta(eta), _gamma(gamma),
 	//visoelastic constant
-	_sigma(sigma), _beta(beta), _L0(L0), _k_spring(k_spring), _alpha(alpha)
+	_sigma(sigma), _beta(beta), _L0(L0), _k_spring(k_spring), _alpha(alpha), _gammaSpring(gammaSpring)
   {
 	  _dt = 0.0004f;
 
@@ -177,14 +178,15 @@ public:
 	_maxVel = std::fabs(_g.length());
 	//viscoelastic constant
 #ifdef VISCOELASTIC
-	_d0 = 10.f;
-	_dt = 0.007f;
-	_k = 4.f;
-	_k_spring = 0.1f;
-	_alpha = 0.1f;
-	_h = 1.5f;
+	_d0 = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif. 
+	_dt = 0.01f;
+	_k = 30.f;
+	//_k_spring = 0.1f;
+	//_alpha = 0.1f;
+	_h = .5f;
 #endif
 	_kNear = _k * 10.f;
+	//_alpha = 0.001f;
 #ifdef ADAPTATIVE_TIME
   	_dt = 0.0f;
 #endif
@@ -389,8 +391,8 @@ public:
 	computeVelocities_viscoelsatic();
 	updatePosition_viscoelastic();
 	//heree put adjustspring and applyspringdisplacement Sans le spring adjust les particule se repoussent entre elles
-	//adjustSprings();
-	//applySpringDisplacements();
+	adjustSprings();
+	applySpringDisplacements();
 
 	computePressureDoubleDensity();
 	//here resoolve collision
@@ -510,27 +512,44 @@ private:
 	void adjustSprings()
 	{
 		float q, d;
+#ifdef PARALLEL_CPU_VERSION
 #pragma omp parallel for collapse(2) // Fusionner les deux boucles for imbriquées
+#endif
+
 		for (int i = 0; i < particleCount(); ++i)
 		{
 			for (int j = 0; j < particleCount(); ++j)
 			{
-				if (_L[i][j] == 0.f)
-					_L[i][j] = _h;
-				d = _gamma * _L[i][j];
-				Real r_ij_length = (_pos[i] - _pos[j]).length();
-				if (r_ij_length > _L0 + d)
+				if (i < j)
 				{
-					_L[i][j] = _L[i][j] + _dt * _alpha * (r_ij_length - _L0 - d);
+					Vec2f r_ij = _pos[i] - _pos[j];
+					Real r_ij_length = r_ij.length();
+					Real q = r_ij_length / _h;
+					if (q < 1) {
+						if (_L[i][j] == 0.f)
+							_L[i][j] = _h;
+						d = _gammaSpring * _L[i][j];
+
+						if (r_ij_length > _L0 + d)
+						{
+							_L[i][j] += _dt * _alpha * (r_ij_length - _L0 - d);
+						}
+						else if (r_ij_length < _L0 - d)
+						{
+							_L[i][j] -= _dt * _alpha * (_L0 - d - r_ij_length);
+						}
+					}
 				}
-				else if (r_ij_length < _L0 - d)
-				{
-					_L[i][j] -=  _dt * _alpha * (_L0 - d - r_ij_length);
-				}
+				if (_L[i][j] > _h)
+					_L[i][j] = 0.f;
 			}
 		}
 		//remove spring
+		/*
+#ifdef PARALLEL_CPU_VERSION
 #pragma omp parallel for collapse(2) // Fusionner les deux boucles for imbriquées
+#endif
+
 		for (int i = 0; i < particleCount(); ++i)
 		{
 			for (int j = 0; j < particleCount(); ++j)
@@ -538,21 +557,25 @@ private:
 				if (_L[i][j] > _h)
 					_L[i][j] = 0.f;
 			}
-		}
+		}*/
 	}
 
 	void applySpringDisplacements()
 	{
-		Vec2f D;
+#ifdef PARALLEL_CPU_VERSION
 #pragma omp parallel for collapse(2) // Fusionner les deux boucles for imbriquées
+#endif
+
 		for (int i = 0; i < particleCount(); ++i)
 		{
 			for (int j = 0; j < particleCount(); ++j)
 			{
-				Vec2f r_ij = _pos[i] - _pos[j];
-				D = _dt * _dt * _k_spring * (1 - _L[i][j] / _h) * (_L[i][j] - r_ij.length()) * r_ij;
-				_pos[i] -= D / 2;
-				_pos[j] += D / 2;
+				if (i < j) {
+					Vec2f r_ij = _pos[i] - _pos[j];
+					Vec2f D = _dt * _dt * _k_spring * (1 - (_L[i][j] / _h)) * (_L[i][j] - r_ij.length()) * r_ij;
+					_pos[i] -= D / 2;
+					_pos[j] += D / 2;
+				}
 			}
 		}
 
@@ -563,15 +586,15 @@ private:
 #pragma omp parallel for
 #endif
 		for (tIndex i = 0; i < particleCount(); ++i) {
-			//Vec2f r_ij = _pos[i] - _pos[i];  // Auto-influence
-			Vec2f r_ij; 
-			Real q;// = r_ij.length() / _h;
+			Vec2f r_ij = _pos[i] - _pos[i];  // Auto-influence
+			//Vec2f r_ij; 
+			Real q = r_ij.length() / _h;
 			Real density = 0;
 			Real densityNear = 0;
-			/*if (q < 1) {
+			if (q < 1) {
 				density += (1 - q) * (1 - q);
 				densityNear += (1 - q) * (1 - q) * (1 - q);
-			}*/
+			}
 			//for (const tIndex& j : getNeighbors_parallel(i)) {
 			std::vector<tIndex> neigh = _neighborsOf[i];
 			//std::cout << "particle[" << i << "] neighNumber=" << neigh.size() << std::endl;
@@ -1341,6 +1364,7 @@ private:
   Real _L0;						// spring rest length
   Real _k_spring;				//spring constant
   Real _alpha;					//plasticity constant
+  Real _gammaSpring;
 
 };
 
