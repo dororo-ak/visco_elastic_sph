@@ -390,7 +390,7 @@ public:
 #endif
 
   }
-
+  //
   tIndex particleCount() const { return _pos.size(); }
   const Vec2f& position(const tIndex i) const { return _pos[i]; }
   const float& color(const tIndex i) const { return _col[i]; }
