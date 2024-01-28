@@ -18,15 +18,16 @@
 
 #define _USE_MATH_DEFINES
 
-#define  FASTVERSION //faster version by merging some function
+//#define  FASTVERSION //faster version by merging some function
 //#define PARALLEL_CPU_VERSION // faster version than FASTVERSION
+//#define ADAPTATIVE_TIME
 
-//#define ADAPTATIVE_TIME 
 #define VISCOELASTIC
 //#define SAVEIMAGES
-#ifndef VISCOELASTIC
-#define  PARTICLES_AS_BOUNDARIES //work only if fast version defined
-#endif
+
+//#define  PARTICLES_AS_BOUNDARIES //work only if fast version defined
+//#define WITHOUT_GRAVITY
+//#define VISCO_FLUID
 
 
 
@@ -161,7 +162,7 @@ public:
   explicit SphSolver(
     const Real nu=0.01, const Real h=0.5f, const Real density=1e3,
     const Vec2f g=Vec2f(0, -9.8), const Real eta=0.01f, const Real gamma=7.0,
-    const Real sigma = 0.03f, const Real beta = 0.01f, const Real L0 = .5f, const Real k_spring = 0.00001f, const Real alpha = 0.3f, const Real gammaSpring = 0.1f) :
+    const Real sigma = 0.03f, const Real beta = 0.01f, const Real L0 = 2.f, const Real k_spring = 0.00001f, const Real alpha = 0.3f, const Real gammaSpring = 0.2f) :
 	//gammaSpring between 0 et 0.2
     _kernel(h), _nu(nu),_h(h), _d0(density),
     _g(g), _eta(eta), _gamma(gamma),
@@ -170,7 +171,9 @@ public:
   {
 	  _dt = 0.0004f;
 
-
+#ifdef ADAPTATIVE_TIME
+  	_dt = 0.0f;
+#endif
 
     _m0 = _d0*_h*_h;
     _c = std::fabs(_g.y)/_eta;
@@ -178,18 +181,30 @@ public:
 	_maxVel = std::fabs(_g.length());
 	//viscoelastic constant
 #ifdef VISCOELASTIC
-	_d0 = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif. 
+	_d0ViscoELas = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif. 
 	_dt = 0.01f;
-	_k = 30.f;
+	_kViscoElas = 0.4f;//30.f;
 	//_k_spring = 0.1f;
 	//_alpha = 0.1f;
 	_h = .5f;
-#endif
-	_kNear = _k * 10.f;
+	_hVisco = 1.5f;
+
+  	_kViscoElasNear = _kViscoElas * 10.f;
 	//_alpha = 0.001f;
-#ifdef ADAPTATIVE_TIME
-  	_dt = 0.0f;
+#ifdef VISCO_FLUID
+	_d0ViscoELas = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif. 
+	_dt = 0.001f;
+	_kViscoElas = 0.4;//30.f;
+	//_k_spring = 0.1f;
+	//_alpha = 0.1f;
+	_h = .5f;
+	_kViscoElasNear = _kViscoElas * 10.f;
+	//_alpha = 0.001f;
 #endif
+
+#endif
+	
+
   }
 
   // assume an arbitrary grid with the size of res_x*res_y; a fluid mass fill up
@@ -364,16 +379,9 @@ public:
 	n++;
 
 #endif
-
-#ifdef VISCOELASTIC
-	
-	//_maxVel += _g.length() * _dt;
-	
-	_dt = (0.4f * _h) / _maxVel; //CFL condition
-	//std::cout << "Vmax=" << _maxVel <<" dt="<<_dt<< std::flush;
-	_maxVel = 0.f;
-	n++;
 #endif
+
+
 
 #endif
 
@@ -382,6 +390,7 @@ public:
 	buildCellsNeighborhoud_parallel();
 	computeAllNeighbors_parallel();
 #endif
+
 #ifndef PARALLEL_CPU_VERSION
 	buildCellsNeighborhoud();
 	computeAllNeighbors();
@@ -393,17 +402,36 @@ public:
 	//heree put adjustspring and applyspringdisplacement Sans le spring adjust les particule se repoussent entre elles
 	adjustSprings();
 	applySpringDisplacements();
-
 	computePressureDoubleDensity();
+
+
+#ifdef  VISCO_FLUID
+	//here i add this method beacuse i want my fluid to have more a liquid fluid behavior
+	computePressureDensity();
+	applyForcesAndComputePosition();
+#endif
+
+#ifndef VISCO_FLUID
 	//here resoolve collision
 	resolveCollisionBoundary();
 
 	//last
 	updateNextVelocityAndColors_viscoelastic();
-#endif
-
 
 #endif
+
+#ifdef  ADAPTATIVE_TIME
+#ifndef VISCO_FLUID
+	//_maxVel += _g.length() * _dt;
+
+	_dt = (0.4f * _h) / _maxVel; //CFL condition
+	//std::cout << "Vmax=" << _maxVel <<" dt="<<_dt<< std::flush;
+	_maxVel = 0.f;
+	n++;
+#endif
+#endif
+#endif
+
 
   }
   //
@@ -414,18 +442,21 @@ public:
 
   int resX() const { return _resX; }
   int resY() const { return _resY; }
-#ifdef ADAPTATIVE_TIME
+
+
   Real getLoopNum()
   {
+  	#ifdef ADAPTATIVE_TIME
 	  if (isFirstStep){
 		  isFirstStep = false;
 		  return 10;
 	  }
 
 	  std::cout << " loop num = " << static_cast<int> (0.01 / _dt) << std::endl;
-	  return static_cast<int> (0.1 / _dt);
-  }
 #endif
+	  return static_cast<int> (0.1 / _dt);
+
+  }
 
 private:
 
@@ -452,7 +483,7 @@ private:
 			if(i <j)
 			{
 				Vec2f r_ij = _pos[i] - _pos[j];
-				Real q = r_ij.length() / _h;
+				Real q = r_ij.length() / _hVisco;
 				if(q<1)
 				{
 					Real u = (_vel[i] - _vel[j]).dotProduct(r_ij);
@@ -494,17 +525,19 @@ private:
 				_vel[i] = (_pos[i] - _posPrevious[i]) / _dt;
 			if (_vel[i].length() > _maxVel)
 				_maxVel = _vel[i].length();
-
+#ifndef VISCO_FLUID
 			//update colors
 			_col[i * 4 + 0] = 0.6;
 			_col[i * 4 + 1] = 0.6;
-			_col[i * 4 + 2] = (_d[i]+ _dNear[i]) / _d0;
+			_col[i * 4 + 2] = (_d[i]+ _dNear[i]) / _d0ViscoELas;
 
 			//update velocity lines
 			_vln[i * 4 + 0] = _pos[i].x;
 			_vln[i * 4 + 1] = _pos[i].y;
 			_vln[i * 4 + 2] = _pos[i].x + _vel[i].x;
 			_vln[i * 4 + 3] = _pos[i].y + _vel[i].y;
+#endif
+
 
 		}
 	}
@@ -524,10 +557,10 @@ private:
 				{
 					Vec2f r_ij = _pos[i] - _pos[j];
 					Real r_ij_length = r_ij.length();
-					Real q = r_ij_length / _h;
+					Real q = r_ij_length / _hVisco;
 					if (q < 1) {
 						if (_L[i][j] == 0.f)
-							_L[i][j] = _h;
+							_L[i][j] = _hVisco;
 						d = _gammaSpring * _L[i][j];
 
 						if (r_ij_length > _L0 + d)
@@ -540,24 +573,10 @@ private:
 						}
 					}
 				}
-				if (_L[i][j] > _h)
+				if (_L[i][j] > _hVisco)
 					_L[i][j] = 0.f;
 			}
 		}
-		//remove spring
-		/*
-#ifdef PARALLEL_CPU_VERSION
-#pragma omp parallel for collapse(2) // Fusionner les deux boucles for imbriquées
-#endif
-
-		for (int i = 0; i < particleCount(); ++i)
-		{
-			for (int j = 0; j < particleCount(); ++j)
-			{
-				if (_L[i][j] > _h)
-					_L[i][j] = 0.f;
-			}
-		}*/
 	}
 
 	void applySpringDisplacements()
@@ -572,7 +591,7 @@ private:
 			{
 				if (i < j) {
 					Vec2f r_ij = _pos[i] - _pos[j];
-					Vec2f D = _dt * _dt * _k_spring * (1 - (_L[i][j] / _h)) * (_L[i][j] - r_ij.length()) * r_ij;
+					Vec2f D = _dt * _dt * _k_spring * (1 - (_L[i][j] / _hVisco)) * (_L[i][j] - r_ij.length()) * r_ij;
 					_pos[i] -= D / 2;
 					_pos[j] += D / 2;
 				}
@@ -588,7 +607,7 @@ private:
 		for (tIndex i = 0; i < particleCount(); ++i) {
 			Vec2f r_ij = _pos[i] - _pos[i];  // Auto-influence
 			//Vec2f r_ij; 
-			Real q = r_ij.length() / _h;
+			Real q = r_ij.length() / _hVisco;
 			Real density = 0;
 			Real densityNear = 0;
 			if (q < 1) {
@@ -600,7 +619,7 @@ private:
 			//std::cout << "particle[" << i << "] neighNumber=" << neigh.size() << std::endl;
 			for (const tIndex& j : neigh) {
 				r_ij = _pos[i] - _pos[j];
-				q = r_ij.length() /_h;
+				q = r_ij.length() / _hVisco;
 				//std::cout << "q=" << q << std::endl;
 				if (q < 1) {
 					density += (1 - q) * (1 - q);
@@ -612,15 +631,15 @@ private:
 			_dNear[i] = densityNear;
 			//std::cout << "Density=" << density << "  DensityNear=" << densityNear << std::endl;
 
-			Real P = std::max(_k * (density - _d0), 0.0f);
-			Real PNear = std::max(_kNear * densityNear, 0.0f);
+			Real P = std::max(_kViscoElas * (density - _d0ViscoELas), 0.0f);
+			Real PNear = std::max(_kViscoElasNear * densityNear, 0.0f);
 			_p[i] = P;
 			_pNear[i] = PNear;
 
 			Vec2f dx(0.f, 0.f);
 			for (const tIndex& j : _neighborsOf[i]) {
 				r_ij = _pos[i] - _pos[j];  // Auto-influence
-				Real q = r_ij.length() /_h;
+				Real q = r_ij.length() / _hVisco;
 				//std::cout << "q=" << q << std::endl;
 				if (q < 1) {
 					Vec2f D =  _dt * _dt *((P * (1 - q)) + (PNear * (1 - q) * (1 - q))) * r_ij;
@@ -986,7 +1005,14 @@ private:
 #ifdef PARTICLES_AS_BOUNDARIES
 			}
 #endif
+#ifndef PARTICLES_AS_BOUNDARIES
+		accel += _g - fpressure + (2.0 * _nu * fvisco);
+		//update velocity
 
+		_vel[i] += _dt * accel;
+		//update position 
+		_pos[i] += _dt * _vel[i];
+#endif
 
 #ifdef PARTICLES_AS_BOUNDARIES
 			if (!isBoundary(i)) {// update position if not a boundary
@@ -1044,6 +1070,7 @@ private:
 			}
 #endif
 
+#ifndef VISCOELASTIC
 
 			//update colors
 			_col[i * 4 + 0] = 0.6;
@@ -1059,6 +1086,8 @@ private:
 				_vln[i * 4 + 2] = _pos[i].x + _vel[i].x;
 				_vln[i * 4 + 3] = _pos[i].y + _vel[i].y;
 			}
+#endif
+
 		}
 
 	}
@@ -1351,10 +1380,12 @@ private:
 
 
 	//viscoelastic
-
-	Real _kNear;					//EOS near
+  Real _kViscoElas;					//same function as _k
+	Real _kViscoElasNear;					//EOS near
+	Real _d0ViscoELas;				//_d0 for visco elastic sim
   std::vector<Real>  _dNear;	//density near
   std::vector<Real>  _pNear;	//pressure near
+  Real _hVisco;					// h for viscofluid
 
   Real _sigma ;					// viscosity factor ( the high it is the more viscous the fluid would be)
   Real _beta;					// quadratic dependance compared with vvelocity. Usefull to avoid particle interpenetration by eliminating high intern speed. SHpuld be non nul
@@ -1585,16 +1616,12 @@ void update(const float currentTime)
 		//save a pic after n step
 
 		
-#ifdef ADAPTATIVE_TIME
 #ifdef SAVEIMAGES
 		int n;
 		n= gSolver.getLoopNum();// 50;
 		// solve 10 steps for better stability ( chaque step est un pas de temps )
 		for (int i = 0; i < n; ++i)
 #endif
-
-#endif
-		
 		   gSolver.update();
 	
 #ifdef SAVEIMAGES
