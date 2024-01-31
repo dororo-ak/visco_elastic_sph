@@ -19,7 +19,7 @@
 #define _USE_MATH_DEFINES
 
 //#define  FASTVERSION //faster version by merging some function
-//#define PARALLEL_CPU_VERSION // faster version than FASTVERSION
+#define PARALLEL_CPU_VERSION // faster version than FASTVERSION
 //#define ADAPTATIVE_TIME
 
 #define VISCOELASTIC
@@ -28,9 +28,11 @@
 //#define  PARTICLES_AS_BOUNDARIES //work only if fast version defined
 //#define WITHOUT_GRAVITY
 //#define VISCO_FLUID
+#define IMGUI
 
-
-
+#include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_opengl3.h"
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <omp.h>
@@ -60,8 +62,11 @@
 typedef Vec2f vec;
 // window parameters
 GLFWwindow *gWindow = nullptr;
+GLFWwindow* imgui_window = nullptr;
 int gWindowWidth = 1024;
 int gWindowHeight = 768;
+int imguiWindowWidth = 400;
+int imguiWindowHeight = 300;
 
 // timer
 float gAppTimer = 0.0;
@@ -71,8 +76,13 @@ bool gAppTimerStoppedP = true;
 // global options
 bool gPause = true;
 bool gSaveFile = false;
-bool gShowGrid = true;
+bool gShowGrid = false;
 bool gShowVel = false;
+bool gApplyGravity = true;
+bool gApplyVisco = false;
+bool gApplySprings = false;
+bool gSPHfluid = false;
+
 int gSavedCnt = 0;
 
 const int kViewScale = 15;
@@ -128,22 +138,29 @@ private:
 
 class Particle {
   private :
-    const bool _boundary;
+     bool _isBoundary;
+	 bool isLeak;
     Vec2f _position, _velocity, _acc;
     Real _pressure, _density;
-  public:
-	Particle( Vec2f position, bool boundary):_position(position),_boundary(boundary){}
+	//for visco fluid
+	Vec2f _posPrevious;
+	Real _pNear;
+	Real _dNear;
+	std::vector<tIndex> neighbors ;
+	float color;
+	float velocityLine;
 
+
+  public:
+	Particle( Vec2f position, bool boundary):_position(position),_isBoundary(boundary){}
+	Particle(Vec2f position) :_position(position) {}
 	Vec2f getPosition()const{return _position;}
 	void setPosition(const Vec2f& position){_position = position;}
 
-	const bool isBoundary()const{return  _boundary;}
+	const bool isBoundary()const{return  _isBoundary;}
 
 	void setVelocity(const Vec2f& velocity){_velocity = velocity;}
     Vec2f getVelocity()const { return _velocity; }
-
-	void setAcc(const Vec2f& acc) { _acc = acc; }
-    Vec2f getAcc()const { return _acc; }
 
 	//maybe useless
     void setPressure(const Real pressure) { _pressure = pressure; }
@@ -151,6 +168,8 @@ class Particle {
 
     void setDensity(const Real density) { _density = density; }
     Real getDensity() const { return _density; }
+
+	voi
 
 
 
@@ -162,7 +181,7 @@ public:
   explicit SphSolver(
     const Real nu=0.01, const Real h=0.5f, const Real density=1e3,
     const Vec2f g=Vec2f(0, -9.8), const Real eta=0.01f, const Real gamma=7.0,
-    const Real sigma = 0.03f, const Real beta = 0.01f, const Real L0 = 2.f, const Real k_spring = 0.00001f, const Real alpha = 0.3f, const Real gammaSpring = 0.2f) :
+    const Real sigma = 1.3f, const Real beta = 1.1f, const Real L0 = 2.f, const Real k_spring = 0.00001f, const Real alpha = 0.3f, const Real gammaSpring = 0.2f) :
 	//gammaSpring between 0 et 0.2
     _kernel(h), _nu(nu),_h(h), _d0(density),
     _g(g), _eta(eta), _gamma(gamma),
@@ -171,6 +190,43 @@ public:
   {
 	  _dt = 0.0004f;
 
+  	//viscoelastic constant
+#ifdef VISCOELASTIC
+
+	  _d0ViscoELas = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif. 
+	  _dt = 0.007f;
+	  _kViscoElas = 0.004;//0.4f;//30.f;
+	  _k_spring = 0.3f;
+	  //_alpha = 0.1f;
+	  _h = .5f;
+	  _hVisco = 10.5f;
+	   
+	  _kViscoElasNear = _kViscoElas * 50.f;//0.01;//
+	  _L0 = 1.5f;
+	  //_alpha = 0.001f;
+	  _applyGravity = true;
+  	  _applyViscosity=false;
+  	  _applySprings = false;
+  	  _SPHfluid = false;
+#ifdef VISCO_FLUID
+	  _dt = 0.0004f;
+	  _hVisco = 3.f;
+	  _d0ViscoELas = 0.1f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif.
+	  //_d0 = _d0ViscoELas;
+	  _kViscoElas = 30.f;
+	  //_k_spring = 0.1f;
+	  //_alpha = 0.1f;
+	  _h = .5f;
+	  _hVisco = 1.5f;
+	  _kViscoElasNear = _kViscoElas * 10.f;
+	  _L0 =3.f;
+	  //_sigma = 3.f;
+	  //_beta = 1.f;
+
+	  //_alpha = 0.001f;
+#endif
+
+#endif
 #ifdef ADAPTATIVE_TIME
   	_dt = 0.0f;
 #endif
@@ -179,30 +235,7 @@ public:
     _c = std::fabs(_g.y)/_eta;
     _k = _d0*_c*_c/_gamma;
 	_maxVel = std::fabs(_g.length());
-	//viscoelastic constant
-#ifdef VISCOELASTIC
-	_d0ViscoELas = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif. 
-	_dt = 0.01f;
-	_kViscoElas = 0.4f;//30.f;
-	//_k_spring = 0.1f;
-	//_alpha = 0.1f;
-	_h = .5f;
-	_hVisco = 1.5f;
 
-  	_kViscoElasNear = _kViscoElas * 10.f;
-	//_alpha = 0.001f;
-#ifdef VISCO_FLUID
-	_d0ViscoELas = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif. 
-	_dt = 0.001f;
-	_kViscoElas = 0.4;//30.f;
-	//_k_spring = 0.1f;
-	//_alpha = 0.1f;
-	_h = .5f;
-	_kViscoElasNear = _kViscoElas * 10.f;
-	//_alpha = 0.001f;
-#endif
-
-#endif
 	
 
   }
@@ -321,42 +354,42 @@ public:
   void update()
   {
 
-    std::cout << '.' << std::flush;
-  	
+	  std::cout << '.' << std::flush;
+
 #ifndef FASTVERSION
 #ifndef VISCOELASTIC
-	buildCellsNeighborhoud();
-    computeDensity();
-    computePressure();
-	_acc = std::vector<Vec2f>(_pos.size(), Vec2f(0, 0));
-    applyBodyForce();
-    applyPressureForce();
-    applyViscousForce();
-    updateVelocity();
-    updatePosition();
-	resolveCollisionBoundary();
+	  buildCellsNeighborhoud();
+	  computeDensity();
+	  computePressure();
+	  _acc = std::vector<Vec2f>(_pos.size(), Vec2f(0, 0));
+	  applyBodyForce();
+	  applyPressureForce();
+	  applyViscousForce();
+	  updateVelocity();
+	  updatePosition();
+	  resolveCollisionBoundary();
 
-	updateColor();
-	if (gShowVel) updateVelLine();
+	  updateColor();
+	  if (gShowVel) updateVelLine();
 #endif
 #endif
 #ifdef FASTVERSION
 
 #ifndef  PARALLEL_CPU_VERSION
 #ifndef VISCOELASTIC
-	buildCellsNeighborhoud();
-	//computeAllNeighbors();
-  	computePressureDensity();
-	applyForcesAndComputePosition();
+	  buildCellsNeighborhoud();
+	  //computeAllNeighbors();
+	  computePressureDensity();
+	  applyForcesAndComputePosition();
 #endif
 #endif
 
 #ifdef PARALLEL_CPU_VERSION
-  	#ifndef VISCOELASTIC
-	buildCellsNeighborhoud_parallel();
-	computeAllNeighbors_parallel();
-	computePressureDensity_parallel();
-	parallelApplyForcesAndComputePosition();
+#ifndef VISCOELASTIC
+	  buildCellsNeighborhoud_parallel();
+	  computeAllNeighbors_parallel();
+	  computePressureDensity_parallel();
+	  parallelApplyForcesAndComputePosition();
 #endif
 #endif
 
@@ -364,19 +397,19 @@ public:
 
 #ifdef ADAPTATIVE_TIME
 #ifndef VISCOELASTIC
-	if(isFirstStep)
-	{
-	_maxVel += _g.length()*100;
-		isFirstStep = false;
-	}
-  	else
-	{
-		_maxVel += _g.length();
-	}
-	_dt = (0.04f * _h) / _maxVel; //CFL condition
-	//std::cout << "Vmax=" << _maxVel <<" dt="<<_dt<< std::flush;
-	_maxVel = 0.f;
-	n++;
+	  if (isFirstStep)
+	  {
+		  _maxVel += _g.length() * 100;
+		  isFirstStep = false;
+	  }
+	  else
+	  {
+		  _maxVel += _g.length();
+	  }
+	  _dt = (0.04f * _h) / _maxVel; //CFL condition
+	  //std::cout << "Vmax=" << _maxVel <<" dt="<<_dt<< std::flush;
+	  _maxVel = 0.f;
+	  n++;
 
 #endif
 #endif
@@ -387,38 +420,41 @@ public:
 
 #ifdef VISCOELASTIC
 #ifdef PARALLEL_CPU_VERSION
-	buildCellsNeighborhoud_parallel();
-	computeAllNeighbors_parallel();
+	  buildCellsNeighborhoud_parallel();
+	  computeAllNeighbors_parallel();
 #endif
 
 #ifndef PARALLEL_CPU_VERSION
-	buildCellsNeighborhoud();
-	computeAllNeighbors();
-	//computeAllNeighborsSimple();
+	  buildCellsNeighborhoud();
+	  computeAllNeighbors();
+	  //computeAllNeighborsSimple_viscoelastic();
 #endif
 
-	computeVelocities_viscoelsatic();
-	updatePosition_viscoelastic();
-	//heree put adjustspring and applyspringdisplacement Sans le spring adjust les particule se repoussent entre elles
-	adjustSprings();
-	applySpringDisplacements();
-	computePressureDoubleDensity();
+	  computeVelocities_viscoelsatic();
+	  updatePosition_viscoelastic();
+	  //heree put adjustspring and applyspringdisplacement Sans le spring adjust les particule se repoussent entre elles
+	  if (_applySprings) {
+		  adjustSprings();
+		  applySpringDisplacements();
+	  }
 
 
-#ifdef  VISCO_FLUID
-	//here i add this method beacuse i want my fluid to have more a liquid fluid behavior
-	computePressureDensity();
-	applyForcesAndComputePosition();
-#endif
+	  computePressureDoubleDensity();
 
-#ifndef VISCO_FLUID
+
+	  //here i add this method beacuse i want my fluid to have more a liquid fluid behavior
+	  if (_SPHfluid) {
+		  computePressureDensity();
+		  applyForcesAndComputePosition();
+  }
+
+
 	//here resoolve collision
 	resolveCollisionBoundary();
 
 	//last
 	updateNextVelocityAndColors_viscoelastic();
 
-#endif
 
 #ifdef  ADAPTATIVE_TIME
 #ifndef VISCO_FLUID
@@ -433,6 +469,41 @@ public:
 #endif
 
 
+  }
+
+  Real getD0ViscoElas() { return _d0ViscoELas; }
+  Real getKViscoElas() {return _kViscoElas;}
+  Real getKNearViscoElas() { return _kViscoElasNear; }
+  Real getKSpring() { return _k_spring; }
+  Real getHViscoElas() { return _hVisco; }
+  Real getL0() { return _L0; }
+  Real getAlpha() { return _alpha; }
+  Real getBeta() { return _beta; }
+  Real getDt() { return _dt; }
+  Real getSigma() { return _sigma; }
+  Real getGammaSpring() { return _gammaSpring; }
+
+  void applyGravity(bool q) { _applyGravity = q; }
+  bool isGravityApplied() { return _applyGravity; }
+  void applyViscosity(bool q) { _applyViscosity = q; }
+  bool isViscosityApplied() { return _applyViscosity; }
+  void applySprings(bool q) { _applySprings = q; }
+  bool isSpringsApplied() { return _applySprings; }
+  void applySPH(bool q) { _SPHfluid = q; }
+  bool isSPHApplied() { return _SPHfluid; }
+  void updateFactors(Real dt , Real d0, Real k, Real kNear, Real kSpring, Real h, Real L0, Real alpha, Real beta, Real sigma, Real gammaSpring)
+  {	  _dt = dt;
+	  _d0ViscoELas = d0;
+	  _kViscoElas = k;
+	  _kViscoElasNear = kNear;//0.01;//
+	  _k_spring = kSpring;
+	  _hVisco =h;
+	  _L0 = L0;
+	  _alpha = alpha;
+	  _beta = beta;
+	  _sigma = sigma;
+	  _gammaSpring = gammaSpring;
+	  std::cout << '.' << std::flush;
   }
   //
   tIndex particleCount() const { return _pos.size(); }
@@ -469,9 +540,11 @@ private:
 #pragma omp parallel for
 #endif
 		for (int i = 0; i < particleCount(); ++i) {
-			if (!isBoundary(i)) 
-				_vel[i] += _g * _dt;
-			applyViscosity_viscoelastic(i); //TODO : put the code here for better performences
+			if (!isBoundary(i))
+				if(_applyGravity)
+					_vel[i] += _g * _dt;
+			if(_applyViscosity)
+				applyViscosity_viscoelastic(i); //TODO : put the code here for better performences
 		}
 	}
 
@@ -489,7 +562,7 @@ private:
 					Real u = (_vel[i] - _vel[j]).dotProduct(r_ij);
 					if(u>0)
 					{
-						Vec2f I = _dt * (1 - q) * ((_sigma * u) + (_beta * u * u) )* r_ij;
+						Vec2f I = _dt * (1 - q) * ((_sigma * u) + (_beta * u * u) )* r_ij.normalize();
 						if (!isBoundary(i)) 
 							_vel[i] -= I / 2.f;
 						if (!isBoundary(j)) 
@@ -565,11 +638,11 @@ private:
 
 						if (r_ij_length > _L0 + d)
 						{
-							_L[i][j] += _dt * _alpha * (r_ij_length - _L0 - d);
+							_L[i][j] += _dt * _alpha * (r_ij_length - _L0 - d);//std::max(r_ij_length - _L0 - d,0.f);
 						}
 						else if (r_ij_length < _L0 - d)
 						{
-							_L[i][j] -= _dt * _alpha * (_L0 - d - r_ij_length);
+							_L[i][j] -= _dt * _alpha * (_L0 - d - r_ij_length);//std::max(_L0 - d - r_ij_length,0.f);
 						}
 					}
 				}
@@ -591,7 +664,7 @@ private:
 			{
 				if (i < j) {
 					Vec2f r_ij = _pos[i] - _pos[j];
-					Vec2f D = _dt * _dt * _k_spring * (1 - (_L[i][j] / _hVisco)) * (_L[i][j] - r_ij.length()) * r_ij;
+					Vec2f D = _dt * _dt * _k_spring * (1 - (_L[i][j] / _hVisco)) * (_L[i][j] - r_ij.length()) * r_ij.normalize();
 					_pos[i] -= D / 2;
 					_pos[j] += D / 2;
 				}
@@ -642,7 +715,7 @@ private:
 				Real q = r_ij.length() / _hVisco;
 				//std::cout << "q=" << q << std::endl;
 				if (q < 1) {
-					Vec2f D =  _dt * _dt *((P * (1 - q)) + (PNear * (1 - q) * (1 - q))) * r_ij;
+					Vec2f D =  _dt * _dt *((P * (1 - q)) + (PNear * (1 - q) * (1 - q))) * r_ij.normalize();
 					if (!isBoundary(j)) 
 						_pos[j] += D / 2;
 					dx -= D / 2;
@@ -715,7 +788,7 @@ private:
 		}
 	}
 
-	void  computeAllNeighborsSimple() {
+	void  computeAllNeighborsSimple_viscoelastic() {
 		_neighborsOf.clear();
 		_neighborsOf.resize(particleCount());
 
@@ -724,7 +797,7 @@ private:
 			for (tIndex j = 0; j < particleCount(); j++)
 			{
 				Vec2f r_ij = _pos[i] - _pos[j];
-				if (std::fabsf(r_ij.length()) < _h)
+				if (std::fabsf(r_ij.length()) < _hVisco )
 				{
 					neighbors.push_back(j);
 				}
@@ -1130,6 +1203,7 @@ private:
 		}
 	}*/
 
+
 	bool isBoundary(const tIndex& p)
 	{
 #ifdef PARTICLES_AS_BOUNDARIES
@@ -1396,23 +1470,45 @@ private:
   Real _k_spring;				//spring constant
   Real _alpha;					//plasticity constant
   Real _gammaSpring;
+  bool _applyGravity;
+  bool _applyViscosity;
+  bool _applySprings;
+  bool _SPHfluid;
 
 };
 
 SphSolver gSolver(0.08,0.5, 1e3, Vec2f(0, -9.8), 0.01, 7.0);
 
+
+
+Real _hViscoGUI;					// h for viscofluid
+
+Real _sigmaGUI;					// viscosity factor ( the high it is the more viscous the fluid would be)
+Real _betaGUI;					// quadratic dependance compared with vvelocity. Usefull to avoid particle interpenetration by eliminating high intern speed. SHpuld be non nul
+
+Real _L0GUI;						// spring rest length
+Real _k_springGUI;				//spring constant
+Real _alphaGUI;					//plasticity constant
+Real _gammaSpringGUI;
+Real _kGUI;
+Real _kNearGUI;
+Real dtGUI;
+Real d0GUI;
 void printHelp()
 {
   std::cout <<
     "> Help:" << std::endl <<
     "    Keyboard commands:" << std::endl <<
     "    * H: print this help" << std::endl <<
-    "    * P: toggle simulation" << std::endl <<
+    "    * P: toggle simulation" << std::endl << 
+	"    * R: reset simulation" << std::endl <<
     "    * G: toggle grid rendering" << std::endl <<
     "    * V: toggle velocity rendering" << std::endl <<
     "    * S: save current frame into a file" << std::endl <<
     "    * Q: quit the program" << std::endl;
+
 }
+
 
 // Executed each time the window is resized. Adjust the aspect ratio and the rendering viewport to the current window.
 void windowSizeCallback(GLFWwindow *window, int width, int height)
@@ -1425,26 +1521,71 @@ void windowSizeCallback(GLFWwindow *window, int width, int height)
   glOrtho(0, gSolver.resX(), 0, gSolver.resY(), 0, 1);
 }
 
-// Executed each time a key is entered.
-void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+void initImGUI()
 {
-  if(action == GLFW_PRESS && key == GLFW_KEY_H) {
-    printHelp();
-  } else if(action == GLFW_PRESS && key == GLFW_KEY_S) {
-    gSaveFile = !gSaveFile;
-  } else if(action == GLFW_PRESS && key == GLFW_KEY_G) {
-    gShowGrid = !gShowGrid;
-  } else if(action == GLFW_PRESS && key == GLFW_KEY_V) {
-    gShowVel = !gShowVel;
-  } else if(action == GLFW_PRESS && key == GLFW_KEY_P) {
-    gAppTimerStoppedP = !gAppTimerStoppedP;
-    if(!gAppTimerStoppedP)
-      gAppTimerLastClockTime = static_cast<float>(glfwGetTime());
-  } else if(action == GLFW_PRESS && key == GLFW_KEY_Q) {
-    glfwSetWindowShouldClose(window, true);
-  }
-}
+	dtGUI = gSolver.getDt();
+	d0GUI = gSolver.getD0ViscoElas();
+	_kGUI = gSolver.getKViscoElas();
+	_kNearGUI = gSolver.getKNearViscoElas();
+	_k_springGUI = gSolver.getKSpring();
 
+	_hViscoGUI = gSolver.getHViscoElas();
+	_L0GUI = gSolver.getL0();
+	_alphaGUI = gSolver.getAlpha();
+	_betaGUI = gSolver.getBeta();
+
+	_sigmaGUI = gSolver.getSigma();
+
+	_gammaSpringGUI = gSolver.getGammaSpring();
+	gApplyGravity = gSolver.isGravityApplied();
+	gApplyVisco = gSolver.isViscosityApplied();
+	gApplySprings = gSolver.isSpringsApplied();
+	gSPHfluid = gSolver.isSPHApplied();
+
+
+	// Initialisation d'ImGui
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	ImGui::StyleColorsDark(); // ou ImGui::StyleColorsClassic();
+
+	// Initialisation des backends ImGui pour GLFW et OpenGL
+	ImGui_ImplGlfw_InitForOpenGL(gWindow, true);
+	ImGui_ImplOpenGL3_Init("#version 460"); // Utilisez votre version de GLSL ici
+
+}
+void resetSim()
+{
+	gSolver.initScene(48, 32, 32, 16);
+
+}
+// Executed each time a key is entered.
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+	if (action == GLFW_PRESS && key == GLFW_KEY_H) {
+		printHelp();
+	}
+	else if (action == GLFW_PRESS && key == GLFW_KEY_S) {
+		gSaveFile = !gSaveFile;
+	}
+	else if (action == GLFW_PRESS && key == GLFW_KEY_G) {
+		gShowGrid = !gShowGrid;
+	}
+	else if (action == GLFW_PRESS && key == GLFW_KEY_V) {
+		gShowVel = !gShowVel;
+	}
+	else if (action == GLFW_PRESS && key == GLFW_KEY_P) {
+		gAppTimerStoppedP = !gAppTimerStoppedP;
+		if (!gAppTimerStoppedP)
+			gAppTimerLastClockTime = static_cast<float>(glfwGetTime());
+	}
+	else if (action == GLFW_PRESS && key == GLFW_KEY_Q) {
+		glfwSetWindowShouldClose(window, true);
+	}
+	else if (action == GLFW_PRESS && key == GLFW_KEY_R) {
+		resetSim();
+	}
+}
 void initGLFW()
 {
   // Initialize GLFW, the library responsible for window management
@@ -1475,7 +1616,7 @@ void initGLFW()
 
   // Load the OpenGL context in the GLFW window
   glfwMakeContextCurrent(gWindow);
-
+  gladLoadGL();
   // not mandatory for all, but MacOS X
   glfwGetFramebufferSize(gWindow, &gWindowWidth, &gWindowHeight);
 
@@ -1500,6 +1641,15 @@ void exitOnCriticalError(const std::string &message)
 
 void initOpenGL()
 {
+
+
+
+	// Interroger la version d'OpenGL
+	const GLubyte* renderer = glGetString(GL_RENDERER); // Obtient le renderer
+	const GLubyte* version = glGetString(GL_VERSION); // Obtient la version d'OpenGL
+
+	std::cout << "Renderer: " << renderer << std::endl;
+	std::cout << "Version OpenGL: " << version << std::endl;
   // Load extensions for modern OpenGL
   if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     exitOnCriticalError("[Failed to initialize OpenGL context]");
@@ -1516,15 +1666,21 @@ void initOpenGL()
 
 void init()
 {
-  gSolver.initScene(48, 32, 16, 16);
-
+  gSolver.initScene(48, 32, 32, 16);
   initGLFW();                   // Windowing system
   initOpenGL();
+#ifdef IMGUI
+  initImGUI();
+#endif
 }
 
 void clear()
 {
   glfwDestroyWindow(gWindow);
+  // Nettoyage
+  ImGui_ImplOpenGL3_Shutdown();
+  ImGui_ImplGlfw_Shutdown();
+  ImGui::DestroyContext();
   glfwTerminate();
 }
 
@@ -1533,6 +1689,13 @@ void render()
 {
   glClearColor(.4f, .4f, .4f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#ifdef IMGUI
+
+  // Commencer la nouvelle frame ImGui
+  ImGui_ImplOpenGL3_NewFrame();
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
+#endif
 
   // grid guides
   if(gShowGrid) {
@@ -1579,7 +1742,65 @@ void render()
     glDrawArrays(GL_LINES, 0, gSolver.particleCount()*2);
 
     glDisableClientState(GL_VERTEX_ARRAY);
+
   }
+
+#ifdef IMGUI
+  // Ici, construisez votre interface ImGui
+  ImGui::Begin("Debug ImGui de Adama");
+  // Checkbox that appears in the window
+  ImGui::Checkbox("saveFile", &gSaveFile);
+  ImGui::Checkbox("show grid", &gShowGrid);
+  ImGui::Checkbox("show Velocities", &gShowVel);
+  ImGui::Checkbox("Apply gravity", &gApplyGravity);
+  ImGui::Checkbox("Apply Viscosity", &gApplyVisco);
+  ImGui::Checkbox("Apply Springs", &gApplySprings);
+  ImGui::Checkbox("SPH fluid", &gSPHfluid);
+
+  // Slider that appears in the window
+  //ImGui::SliderFloat("Particle size", &size, ??);
+  ImGui::SliderFloat("k ", &_kGUI, 0.0001f, 30.0f, "Valeur: %.3f", 0.0001f);
+ // ImGui::InputFloat(" ", &_kGUI, 0.1f, 1.0f, "%.3f");
+
+  ImGui::SliderFloat("k near", &_kNearGUI, 0.001f, 100.0f, "Valeur: %.3f", 0.001f);
+  //ImGui::InputFloat(" ", &_kNearGUI, 0.1f, 1.0f, "%.3f");
+
+  ImGui::SliderFloat("k spring", &_k_springGUI, .0f, 50.0f, "Valeur: %.3f", 0.01f);
+  //ImGui::InputFloat(" ", &_k_springGUI, 0.1f, 1.0f, "%.3f");
+
+  ImGui::SliderFloat("gamma spring", &_gammaSpringGUI, .0f, 50.0f, "Valeur: %.3f", 0.01f);
+  //ImGui::InputFloat(" ", &_gammaSpringGUI, 0.1f, 1.0f, "%.3f");
+
+  ImGui::SliderFloat("h", &_hViscoGUI, 0.5f, 200.f, "Valeur: %.3f", 0.1f);
+  //ImGui::InputFloat(" ", &_hViscoGUI);
+
+  ImGui::SliderFloat("sigma (viscosity)", &_sigmaGUI, 0.5f, 100.f, "Valeur: %.3f", 0.1f);
+  //ImGui::InputFloat(" ", &_sigmaGUI, 0.1f, 1.0f, "%.3f");
+
+  ImGui::SliderFloat("L0", &_L0GUI, 0.5f, 100.f, "Valeur: %.3f", 0.1f);
+  //ImGui::InputFloat(" ", &_L0GUI, 0.1f, 1.0f, "%.3f");
+
+  ImGui::SliderFloat("d0", &d0GUI, 0.f, 2000.f,"Valeur: % .3f", 1);
+  //ImGui::InputFloat(" ", &d0GUI, 0.1f, 1.0f, "%.3f");
+
+  ImGui::SliderFloat("dt", &dtGUI, 0.00004f, 1.0f, "Valeur: %.3f", 0.00001f);
+  //ImGui::InputFloat(" ", &dtGUI, 0.1f, 1.0f, "%.3f");
+
+  ImGui::SliderFloat("alpha", &_alphaGUI, 0.0001f, 10.0f, "Valeur: %.3f", 0.001f);
+  //ImGui::InputFloat(" ", &_alphaGUI, 0.1f, 1.0f, "%.3f");
+
+  ImGui::SliderFloat("beta", &_betaGUI, 0.0005f, 10.0f, "Valeur: %.3f", 0.001f);
+  //ImGui::InputFloat(" ", &_betaGUI, 0.1f, 1.0f, "%.3f");
+
+
+  // Fancy color editor that appears in the window
+  //ImGui::ColorEdit4("Color", color);
+  ImGui::End();
+
+  // Rendu d'ImGui
+  ImGui::Render();
+  ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#endif
 
   if(gSaveFile) {
     std::stringstream fpath;
@@ -1622,6 +1843,15 @@ void update(const float currentTime)
 		// solve 10 steps for better stability ( chaque step est un pas de temps )
 		for (int i = 0; i < n; ++i)
 #endif
+#ifdef IMGUI
+			gSolver.updateFactors(dtGUI, d0GUI, _kGUI, _kNearGUI, _k_springGUI,
+				_hViscoGUI, _L0GUI, _alphaGUI, _betaGUI, _sigmaGUI, _gammaSpringGUI);
+		gSolver.applyGravity(gApplyGravity);
+		gSolver.applyViscosity(gApplyVisco);
+		gSolver.applySprings(gApplySprings);
+		gSolver.applySPH(gSPHfluid);
+#endif
+
 		   gSolver.update();
 	
 #ifdef SAVEIMAGES
@@ -1658,3 +1888,4 @@ int main(int argc, char **argv)
   std::cout << " > Quit" << std::endl;
   return EXIT_SUCCESS;
 }
+
