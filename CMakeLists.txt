@@ -35,16 +35,21 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/dep/imgui/backends)
 
 add_executable(
   ${PROJECT_NAME}
-  src/main.cpp
-    src/Vector.hpp
+  "src/main2.cpp"
+    "src/Vector.hpp"
+    "src/Vector3.hpp"
+    "src/typedefs.hpp"
  ${IMGUI_SOURCES} # Ajouter les sources d'ImGui ici
-)
+ "src/main2.cpp")
 
 target_sources(${PROJECT_NAME} PRIVATE dep/glad/src/glad.c)
 target_include_directories(${PROJECT_NAME} PRIVATE dep/glad/include/)
 
 add_subdirectory(dep/glfw)
 target_link_libraries(${PROJECT_NAME} PRIVATE glfw)
+
+add_subdirectory(dep/glm)
+target_link_libraries(${PROJECT_NAME} PRIVATE glm)
 
 # Liens OpenGL
 find_package(OpenGL REQUIRED)

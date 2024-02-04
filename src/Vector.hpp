@@ -19,8 +19,7 @@
 #ifndef _VECTOR_HPP_
 #define _VECTOR_HPP_
 
-typedef float Real;
-typedef long int tIndex;
+#include "typedefs.hpp"
 
 inline Real square(const Real a) { return a*a; }
 inline Real cube(const Real a) { return a*a*a; }
@@ -190,7 +189,12 @@ public:
     return (out << vec.x << " " << vec.y);
   }
 };
+#ifdef THREE_D
 typedef Vector2<Real> Vec2f;
 inline const Vec2f operator*(const Real s, const Vec2f &r) { return r*s; }
-
+#endif
+#ifndef THREE_D
+typedef Vector2<Real> Vec;
+inline const Vec operator*(const Real s, const Vec& r) { return r * s; }
+#endif
 #endif  /* _VECTOR_HPP_ */

@@ -137,43 +137,59 @@ private:
 };
 
 class Particle {
-  private :
-     bool _isBoundary;
-	 bool isLeak;
-    Vec2f _position, _velocity, _acc;
-    Real _pressure, _density;
+private:
+	bool _isBoundary;
+	bool isLeak;
+	Vec2f _position, _velocity;
+	Real _pressure, _density;
 	//for visco fluid
 	Vec2f _posPrevious;
 	Real _pNear;
 	Real _dNear;
-	std::vector<tIndex> neighbors ;
+	std::vector<tIndex> neighbors;
 	float color;
 	float velocityLine;
+	
 
+public:
+	Particle(Vec2f position, bool boundary) : _position(position), _isBoundary(boundary) {}
+	Particle(Vec2f position) : _position(position) {}
 
-  public:
-	Particle( Vec2f position, bool boundary):_position(position),_isBoundary(boundary){}
-	Particle(Vec2f position) :_position(position) {}
-	Vec2f getPosition()const{return _position;}
-	void setPosition(const Vec2f& position){_position = position;}
+	Vec2f getPosition() const { return _position; }
+	void setPosition(const Vec2f& position) { _position = position; }
 
-	const bool isBoundary()const{return  _isBoundary;}
+	bool isBoundary() const { return _isBoundary; }
+	void setIsBoundary(bool boundary) { _isBoundary = boundary; }
 
-	void setVelocity(const Vec2f& velocity){_velocity = velocity;}
-    Vec2f getVelocity()const { return _velocity; }
+	bool getIsLeak() const { return isLeak; }
+	void setIsLeak(bool leak) { isLeak = leak; }
 
-	//maybe useless
-    void setPressure(const Real pressure) { _pressure = pressure; }
-    Real getPressure()const { return _pressure; }
+	Vec2f getVelocity() const { return _velocity; }
+	void setVelocity(const Vec2f& velocity) { _velocity = velocity; }
 
-    void setDensity(const Real density) { _density = density; }
-    Real getDensity() const { return _density; }
+	Real getPressure() const { return _pressure; }
+	void setPressure(const Real pressure) { _pressure = pressure; }
 
-	voi
+	Real getDensity() const { return _density; }
+	void setDensity(const Real density) { _density = density; }
 
+	Vec2f getPositionPrevious() const { return _posPrevious; }
+	void setPositionPrevious(const Vec2f& posPrevious) { _posPrevious = posPrevious; }
 
+	Real getPNear() const { return _pNear; }
+	void setPNear(const Real pNear) { _pNear = pNear; }
 
+	Real getDNear() const { return _dNear; }
+	void setDNear(const Real dNear) { _dNear = dNear; }
 
+	std::vector<tIndex> getNeighbors() const { return neighbors; }
+	void setNeighbors(const std::vector<tIndex>& newNeighbors) { neighbors = newNeighbors; }
+
+	float getColor() const { return color; }
+	void setColor(float newColor) { color = newColor; }
+
+	float getVelocityLine() const { return velocityLine; }
+	void setVelocityLine(float newVelocityLine) { velocityLine = newVelocityLine; }
 };
 
 class SphSolver {
