@@ -114,9 +114,9 @@ class CubicSpline {
 public:
 	explicit CubicSpline(const Real& h = 1.0f)
 #ifndef THREE_D
-	: _dim(2)
+		: _dim(2)
 #else
-	: _dim(3)
+		: _dim(3)
 #endif
 
 	{
@@ -269,19 +269,19 @@ public:
 	}
 
 	std::vector<float> getColor() const { return color; }
-	void setColor(int p, float newColor ) { color[p] = newColor; }
-	void addToColor(int p,float newColor) { color[p] += newColor; }
+	void setColor(int p, float newColor) { color[p] = newColor; }
+	void addToColor(int p, float newColor) { color[p] += newColor; }
 
 	std::vector<float> getVelocityLine() const { return velocityLine; }
-	void setVelocityLine( int p, float newVelocityLine) { velocityLine[p] = newVelocityLine; }
-	void addToVelocityLine( int p, float newVelocityLine) { velocityLine[p] += newVelocityLine; }
+	void setVelocityLine(int p, float newVelocityLine) { velocityLine[p] = newVelocityLine; }
+	void addToVelocityLine(int p, float newVelocityLine) { velocityLine[p] += newVelocityLine; }
 	void changePosPrevious() { _posPrevious = _position; }
 
 	void initL(std::vector<Real> lzero)
 	{
 		_L = lzero;
 	}
-	Real getL(int i){return _L[i];}
+	Real getL(int i) { return _L[i]; }
 	std::vector<Real>  getL() { return _L; }
 	void setL(int i, Real l) { _L[i] = l; }
 	void setL(std::vector<Real> l) { _L = l; }
@@ -328,7 +328,7 @@ public:
 		_applySprings = false;
 		_SPHfluid = false;
 #else
-		/*_d0ViscoELas = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif. 
+		/*_d0ViscoELas = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif.
 		_dt = 0.0004f;
 		_kViscoElas = 0.004;//0.4f;//30.f;
 		_k_spring = 0.3f;
@@ -348,7 +348,7 @@ public:
 		_h = .5f;
 		_L0 = _h;
 		_k = 0.004;//0.4f;//30.f;
-		_kNear =0.01;// _k * 50.f;
+		_kNear = 0.01;// _k * 50.f;
 
 		_k_spring = 3.3f;
 		//_alpha = 0.1f;
@@ -386,11 +386,11 @@ public:
 		_dt = (0.09f * _h) / _g.length();
 #endif
 #ifndef THREE_D
-		_m0 = _d0 *_h * _h;
+		_m0 = _d0 * _h * _h;
 #else
-		_m0 =  1.0f ;
+		_m0 = 1.0f;
 #endif
-		
+
 
 
 	}
@@ -495,7 +495,7 @@ public:
 		_col = std::vector<float>(_particles.size() * 4, 1.0); // RGBA
 		_vln = std::vector<float>(_particles.size() * 4, 0.0); // GL_LINES
 		std::vector<Real> lzero = std::vector<Real>(_particles.size(), 0);
-		for(int i=0; i<particleCount(); i++){
+		for (int i = 0; i < particleCount(); i++) {
 			_pos[i] = _particles[i].getPosition();
 			_particles[i].initL(lzero);
 		}
@@ -525,21 +525,25 @@ public:
 		_back = 0.25f - boundaryOffset; // Nouvelle limite pour la face avant
 		_front = static_cast<Real>(res_z) - 0.25f + boundaryOffset; // Nouvelle limite pour la face arrière
 
-		float Offset =  0.25f;//0.f;//
-		for (float k =0.; k < f_depth ; k+=1.0f) {
-			for (float j = 0; j < f_height; j+=1.0f) {
-				for (float i = 0; i < f_width; i+=1.0f) {
+		float Offset = 0.25f;//0.f;//
+		float particleSpace = 0.5f;
+		for (float k = 0.; k < f_depth; k += 2 * particleSpace) {
+			for (float j = 0; j < f_height; j += 2 * particleSpace) {
+				for (float i = 0; i < f_width; i += 2 * particleSpace) {
 					// Pour chaque position (i, j), créer plusieurs particules à différentes hauteurs (k)
-						//for (float zOffset = 0.25f; zOffset <=0.75f; zOffset += 0.5f) {
+					for (float zOffset = 0; zOffset <= particleSpace; zOffset += particleSpace) {
 						/*_particles.push_back(Particle(Vec(i + 0.25f + NUM_BOUNDARY_LAYER * _h, j + 0.25f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
 						_particles.push_back(Particle(Vec(i + 0.75f + NUM_BOUNDARY_LAYER * _h, j + 0.25f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
 						_particles.push_back(Particle(Vec(i + 0.25f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
 						_particles.push_back(Particle(Vec(i + 0.75f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));*/
-							_particles.push_back(Particle(Vec(i + Offset + NUM_BOUNDARY_LAYER * _h, j + Offset + NUM_BOUNDARY_LAYER * _h, k + Offset + NUM_BOUNDARY_LAYER * _h)));
-							_particles.push_back(Particle(Vec(i + Offset + 0.5f+  NUM_BOUNDARY_LAYER * _h, j + Offset + 0.5f  + NUM_BOUNDARY_LAYER * _h, k + Offset + 0.5f+ NUM_BOUNDARY_LAYER * _h)));
-							//_particles.push_back(Particle(Vec(i + 0.25f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
-							//_particles.push_back(Particle(Vec(i + 0.75f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
-					//}
+						_particles.push_back(Particle(Vec(i + Offset + NUM_BOUNDARY_LAYER * _h, j + Offset + NUM_BOUNDARY_LAYER * _h, k + Offset + zOffset + NUM_BOUNDARY_LAYER * _h)));
+						_particles.push_back(Particle(Vec(i + Offset + particleSpace + NUM_BOUNDARY_LAYER * _h, j + Offset + NUM_BOUNDARY_LAYER * _h, k + Offset + zOffset + NUM_BOUNDARY_LAYER * _h)));
+						_particles.push_back(Particle(Vec(i + Offset + NUM_BOUNDARY_LAYER * _h, j + Offset + particleSpace + NUM_BOUNDARY_LAYER * _h, k + Offset + zOffset + NUM_BOUNDARY_LAYER * _h)));
+						_particles.push_back(Particle(Vec(i + Offset + particleSpace + NUM_BOUNDARY_LAYER * _h, j + Offset + particleSpace + NUM_BOUNDARY_LAYER * _h, k + Offset + zOffset + NUM_BOUNDARY_LAYER * _h)));
+
+						//_particles.push_back(Particle(Vec(i + 0.25f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
+						//_particles.push_back(Particle(Vec(i + 0.75f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
+					}
 				}
 			}
 		}
@@ -607,10 +611,11 @@ public:
 			_particles[i].initL(lzero);
 		}
 
-		//adjust _d0 
-		_d0 =  (particleCount() / 512); //64 = 2^(2*dim)
+		//adjust _d0
+		_h = 1.f;
+		_d0 = (particleCount() / 512)/ particleSpace; //64 = 2^(2*dim)
 		_k = .4f;
-		_m0 =1.0f;
+		_m0 = particleSpace;
 
 		updateColor();
 		std::cout << "Total Number of particle : " << particleCount() << " | Number of non boundary particles : " << particleCount() - _particleBoundariesNumber << " |  Number of boundary particles : " << _particleBoundariesNumber << std::endl;
@@ -692,7 +697,7 @@ public:
 			computePressureDensity_parallel();
 			ApplyForcesAndComputePosition_parallel();
 		}
-		
+
 
 #endif
 
@@ -702,31 +707,31 @@ public:
 		//computeAllNeighborsSimple_viscoelastic();
 #endif
 
-		//computeVelocities_viscoelsatic();
-		//updatePosition_viscoelastic();
+		computeVelocities_viscoelsatic();
+		updatePosition_viscoelastic();
 		//heree put adjustspring and applyspringdisplacement Sans le spring adjust les particule se repoussent entre elles
 		if (_applySprings) {
 			adjustSprings();
 			applySpringDisplacements();
 		}
 
-		if(_doubleDensity)
+		if (_doubleDensity)
 			computePressureDoubleDensity();
 
 
 		//here i add this method beacuse i want my fluid to have more a liquid fluid behavior
-	
+
 
 
 		//here resoolve collision
 		resolveCollisionBoundary();
-		
+
 		//last
 		updateNextVelocityAndColors_viscoelastic();
 		updatePosList(); //for the rendering
 
 #ifdef  ADAPTATIVE_TIME
-		_maxVel += _g.length() *_dt ;
+		_maxVel += _g.length() * _dt;
 
 		_dt = (0.4f * _h) / _maxVel; //CFL condition
 		//std::cout << "Vmax=" << _maxVel << " dt=" << _dt << std::flush;
@@ -810,7 +815,8 @@ public:
 	//
 	tIndex particleCount() const { return _particles.size(); }
 	const Vec& position(const tIndex i) const {
-		return _pos[i]; }
+		return _pos[i];
+	}
 	const float& color(const tIndex i) const { return _col[i]; }
 	const float& vline(const tIndex i) const { return _vln[i]; }
 
@@ -843,7 +849,7 @@ public:
 			_pos[i] = _particles[i].getPosition();
 
 		}
-		
+
 	}
 
 	Real getLoopNum()
@@ -873,7 +879,7 @@ private:
 		for (int i = 0; i < particleCount(); ++i) {
 			if (!isBoundary(i))
 				if (_applyGravity && !_SPHfluid)
-					_particles[i].addToVelocity( _g * _dt);
+					_particles[i].addToVelocity(_g * _dt);
 			if (_applyViscosity)
 				applyViscosity_viscoelastic(i); //TODO : put the code here for better performences
 		}
@@ -883,7 +889,7 @@ private:
 	void applyViscosity_viscoelastic(const int& i)
 	{
 
-		for (const tIndex& j : _particles[i].getNeighbors() ){
+		for (const tIndex& j : _particles[i].getNeighbors()) {
 			if (i < j)
 			{
 				Vec r_ij = _particles[i].getPosition() - _particles[j].getPosition();
@@ -913,7 +919,7 @@ private:
 		{
 			if (!isBoundary(i))
 				_particles[i].changePosPrevious();
-				_particles[i].addToPosition( _dt * _particles[i].getVelocity());
+			_particles[i].addToPosition(_dt * _particles[i].getVelocity());
 		}
 
 	}
@@ -928,11 +934,11 @@ private:
 			Vec position = _particles[i].getPosition();
 			Vec velocity = (position - _particles[i].getPositionPrevious()) / _dt;
 			//TODO : remove the comment rehere
-			if (!isBoundary(i)) 
-				//_particles[i].setVelocity(velocity);
-		
-			if (velocity.length() > _maxVel)
-				_maxVel = _particles[i].getVelocity().length();
+			if (!isBoundary(i))
+				_particles[i].setVelocity(velocity);
+
+				if (velocity.length() > _maxVel)
+					_maxVel = _particles[i].getVelocity().length();
 #ifndef VISCO_FLUID
 			Real dens;
 			/*if (!_SPHfluid) {
@@ -942,27 +948,27 @@ private:
 				_col[i * 4 + 2] = (_particles[i].getDensityVisco() + _particles[i].getDNear()) / _d0ViscoELas;
 			}else
 			{*/
-				//update colors
-				_col[i * 4 + 0] = 0.6;
-				_col[i * 4 + 1] = 0.6;
-				_col[i * 4 + 2] = (_particles[i].getDensity() ) / _d0;
+			//update colors
+			_col[i * 4 + 0] = 0.6;
+			_col[i * 4 + 1] = 0.6;
+			_col[i * 4 + 2] = (_particles[i].getDensity()) / _d0;
 			//}
 			if (gShowVel) {
 #ifndef THREE_D
-			//update velocity lines
-			_vln[i * 4 + 0] = position.x;
-			_vln[i * 4 + 1] = position.y;
-			_vln[i * 4 + 2] = position.x + velocity.x;
-			_vln[i * 4 + 3] = position.y + velocity.y;
+				//update velocity lines
+				_vln[i * 4 + 0] = position.x;
+				_vln[i * 4 + 1] = position.y;
+				_vln[i * 4 + 2] = position.x + velocity.x;
+				_vln[i * 4 + 3] = position.y + velocity.y;
 #else
-			_vln[i * 6 + 0] =position.x;
-			_vln[i * 6 + 1] = position.y;
-			_vln[i * 6 + 2] = position.z;
-			_vln[i * 6 + 3] = position.x + velocity.x; // Point final basé sur la vitesse
-			_vln[i * 6 + 4] = position.y + velocity.y;
-			_vln[i * 6 + 5] = position.z + velocity.z;
+				_vln[i * 6 + 0] = position.x;
+				_vln[i * 6 + 1] = position.y;
+				_vln[i * 6 + 2] = position.z;
+				_vln[i * 6 + 3] = position.x + velocity.x; // Point final basé sur la vitesse
+				_vln[i * 6 + 4] = position.y + velocity.y;
+				_vln[i * 6 + 5] = position.z + velocity.z;
 #endif
-}
+			}
 #endif
 
 
@@ -981,28 +987,28 @@ private:
 			for (int j = 0; j < particleCount(); ++j)
 			{
 
-					if (i < j)
-					{
-						Vec r_ij = _particles[i].getPosition() - _particles[j].getPosition();
-						Real r_ij_length = r_ij.length();
-						Real q = r_ij_length / _h;
-						if (q < 1) {
-							if (_particles[i].getL(j) == 0.f)
-								_particles[i].setL(j, _h);
-							d = _gammaSpring * _particles[i].getL(j);
+				if (i < j)
+				{
+					Vec r_ij = _particles[i].getPosition() - _particles[j].getPosition();
+					Real r_ij_length = r_ij.length();
+					Real q = r_ij_length / _h;
+					if (q < 1) {
+						if (_particles[i].getL(j) == 0.f)
+							_particles[i].setL(j, _h);
+						d = _gammaSpring * _particles[i].getL(j);
 
-							if (r_ij_length > _L0 + d)
-							{
-								_particles[i].addToL(j, _dt * _alpha * (r_ij_length - _L0 - d));//std::max(r_ij_length - _L0 - d,0.f);
-							}
-							else if (r_ij_length < _L0 - d)
-							{
-								_particles[i].addToL(j, -_dt * _alpha * (_L0 - d - r_ij_length));//std::max(_L0 - d - r_ij_length,0.f);
-							}
+						if (r_ij_length > _L0 + d)
+						{
+							_particles[i].addToL(j, _dt * _alpha * (r_ij_length - _L0 - d));//std::max(r_ij_length - _L0 - d,0.f);
+						}
+						else if (r_ij_length < _L0 - d)
+						{
+							_particles[i].addToL(j, -_dt * _alpha * (_L0 - d - r_ij_length));//std::max(_L0 - d - r_ij_length,0.f);
 						}
 					}
-					/*if (_particles[i].getL(j) > _h)
-						_particles[i].setL(j, 0.f);*/
+				}
+				/*if (_particles[i].getL(j) > _h)
+					_particles[i].setL(j, 0.f);*/
 			}
 		}
 	}
@@ -1018,12 +1024,12 @@ private:
 			for (int j = 0; j < particleCount(); ++j)
 			{
 
-					if (i < j) {
-						Vec r_ij = _particles[i].getPosition() - _particles[j].getPosition();
-						Vec D = _dt * _dt * _k_spring * (1 - (_particles[i].getL(j) / _hVisco)) * (_particles[i].getL(j) - r_ij.length()) * r_ij.normalize();
-						_particles[i].addToPosition(-D / 2);
-						_particles[j].addToPosition(D / 2);
-					}
+				if (i < j) {
+					Vec r_ij = _particles[i].getPosition() - _particles[j].getPosition();
+					Vec D = _dt * _dt * _k_spring * (1 - (_particles[i].getL(j) / _hVisco)) * (_particles[i].getL(j) - r_ij.length()) * r_ij.normalize();
+					_particles[i].addToPosition(-D / 2);
+					_particles[j].addToPosition(D / 2);
+				}
 			}
 		}
 
@@ -1034,7 +1040,7 @@ private:
 #pragma omp parallel for
 #endif
 		for (tIndex i = 0; i < particleCount(); ++i) {
-//#pragma omp critical
+			//#pragma omp critical
 			{
 				Vec r_ij = _particles[i].getPosition() - _particles[i].getPosition();  // Auto-influence
 				//Vec r_ij; 
@@ -1098,35 +1104,35 @@ private:
 		_pidxInGrid.resize(resX() * resY() * resZ()); // Ajustement pour une grille 3D
 #endif
 
-//#pragma omp parallel for
+		//#pragma omp parallel for
 		for (int i = 0; i < particleCount(); ++i) {
-//#pragma omp critical
-{
-			int cellX = static_cast<int>(_particles[i].getPosition().x);
-			int cellY = static_cast<int>(_particles[i].getPosition().y);
+			//#pragma omp critical
+			{
+				int cellX = static_cast<int>(_particles[i].getPosition().x);
+				int cellY = static_cast<int>(_particles[i].getPosition().y);
 #ifdef THREE_D
-			int cellZ = static_cast<int>(_particles[i].getPosition().z); // Inclure la coordonnée Z
+				int cellZ = static_cast<int>(_particles[i].getPosition().z); // Inclure la coordonnée Z
 #endif
 #ifndef THREE_D
 
-			if (cellX >= 0 && cellX < _resX && cellY >= 0 && cellY < _resY) {
-				_pidxInGrid[idx1d(cellX, cellY)].push_back(i);
+				if (cellX >= 0 && cellX < _resX && cellY >= 0 && cellY < _resY) {
+					_pidxInGrid[idx1d(cellX, cellY)].push_back(i);
 #else
-			//std::cout << "part " << i << " cellule number: x("<<cellX<<") y("<<cellY<<") z("<<cellZ<<")"<<std::endl;
-			if (cellX >= 0 && cellX < _resX && cellY >= 0 && cellY < _resY && cellZ >= 0 && cellZ < _resZ) { // Vérifier les limites pour Z
-				_pidxInGrid[idx1d(cellX, cellY, cellZ)].push_back(i); // Utiliser une fonction idx1d adaptée pour 3D
+				//std::cout << "part " << i << " cellule number: x("<<cellX<<") y("<<cellY<<") z("<<cellZ<<")"<<std::endl;
+				if (cellX >= 0 && cellX < _resX && cellY >= 0 && cellY < _resY && cellZ >= 0 && cellZ < _resZ) { // Vérifier les limites pour Z
+					_pidxInGrid[idx1d(cellX, cellY, cellZ)].push_back(i); // Utiliser une fonction idx1d adaptée pour 3D
 #endif
 
+				}
+				}
 			}
-			}
-		}
 		/*std::cout << "number of partciles cell X=0, y=0 Z=0 :" << _pidxInGrid[idx1d(0, 0, 0)].size() << std::endl;
 			if(_pidxInGrid[idx1d(0, 0, 0)].size()>0)
 			for (int i = 0; i < _pidxInGrid[idx1d(0, 0, 0)].size(); ++i)
 				std::cout << "partcile  in cell X=0, y=0 Z=0 :" << _pidxInGrid[idx1d(0, 0, 0)][i] << std::endl;*/
 
 
-	}
+		}
 
 	std::vector<tIndex> getNeighbors_parallel(tIndex particleIndex) {
 		std::vector<tIndex> neighbors;
@@ -1187,9 +1193,9 @@ private:
 		for (tIndex i = 0; i < particleCount(); ++i) {
 #pragma omp critical
 			{
-			_particles[i].changeNeighbors(getNeighbors(i)); // Mise à jour sécurisée de la structure partagée
-			//_neighborsOf.push_back(neighbors);
-		}
+				_particles[i].changeNeighbors(getNeighbors(i)); // Mise à jour sécurisée de la structure partagée
+				//_neighborsOf.push_back(neighbors);
+			}
 		}
 	}
 
@@ -1222,23 +1228,24 @@ private:
 
 			//for (const tIndex& j : getNeighbors_parallel(i)) {
 			for (const tIndex& j : _particles[i].getNeighbors()) {
-				
+
 				r_ij = _particles[i].getPosition() - _particles[j].getPosition();
 				influence = _kernel.w(r_ij);
 				density += _m0 * influence;
 			}
 #pragma omp critical
 			{
-			_particles[i].setDensity(density);
-			Real pressure = std::max(_k * ((float)pow((density / _d0), _gamma) - 1.0f), 0.0f);
-			_particles[i].setPressure(pressure);
-			//std::cout << "particle=" << i << " density=" << density << " pressure="<<pressure<<std::endl;
+				_particles[i].setDensity(density);
+				Real pressure = std::max(_k * ((float)pow((density / _d0), _gamma) - 1.0f), 0.0f);
+				_particles[i].setPressure(pressure);
+				//std::cout << "particle=" << i << " density=" << density << " pressure="<<pressure<<std::endl;
 
 			}
 		}
 	}
 
-	void ApplyForcesAndComputePosition_parallel(){
+	void ApplyForcesAndComputePosition_parallel() {
+		_applyGravity = false;
 #ifndef PARTICLES_AS_BOUNDARIES
 		std::vector<tIndex> need_res; // for collision
 #endif
@@ -1251,17 +1258,17 @@ private:
 
 #pragma omp parallel for 
 		for (int i = 0; i < particleCount(); i++) {
-				
+
 #ifdef PARTICLES_AS_BOUNDARIES
-				if (!isBoundary(i)) {
+			if (!isBoundary(i)) {
 #endif
-					//for (const tIndex& j : getNeighbors_parallel(i)) {
+				//for (const tIndex& j : getNeighbors_parallel(i)) {
 #pragma omp critical
-					{
-						Particle* particle = &(_particles[i]);
-						accel = Vec(0);
-						fvisco = Vec(0);
-						fpressure = Vec(0);
+				{
+					Particle* particle = &(_particles[i]);
+					accel = Vec(0);
+					fvisco = Vec(0);
+					fpressure = Vec(0);
 
 					for (const tIndex& j : particle->getNeighbors()) {
 						Vec r_ij = particle->getPosition() - _particles[j].getPosition();
@@ -1273,9 +1280,9 @@ private:
 						//Viscosity
 						// avoid to divide by 0
 						Real denom = r_ij.dotProduct(r_ij) + (0.01 * _h * _h);
-						if (denom != 0.0f) 
+						if (denom != 0.0f)
 							fvisco += ((_m0 / _particles[j].getDensity()) * u_ij * (r_ij.dotProduct(gradW) / denom));
-						
+
 					}
 #ifdef PARTICLES_AS_BOUNDARIES
 				}
@@ -1352,79 +1359,79 @@ private:
 				particle->addToVelocity(_dt * accel);
 				velocity = particle->getVelocity();
 
-				particle->addToPosition(_dt * velocity);
+				//particle->addToPosition(_dt * velocity);
 				position = particle->getPosition();
-				
+
 #ifdef ADAPTATIVE_TIME
 				//update max velocity (for _dt adapatation )
 				if (velocity.length() > _maxVel)
 					_maxVel = velocity.length();
 #endif
 
-/*
-				//resolve collision
-#ifndef THREE_D
+				/*
+								//resolve collision
+				#ifndef THREE_D
 
-				if (particle->getPosition().x<_l || particle->getPosition().y<_b || particle->getPosition().x>_r || particle->getPosition().y>_t) {
+								if (particle->getPosition().x<_l || particle->getPosition().y<_b || particle->getPosition().x>_r || particle->getPosition().y>_t) {
 
-					const Vec p0 = particle->getPosition();
+									const Vec p0 = particle->getPosition();
 
-					particle->setPosition(Vec(clamp(particle->getPosition().x, _l, _r),
-						clamp(particle->getPosition().y, _b, _t)));
+									particle->setPosition(Vec(clamp(particle->getPosition().x, _l, _r),
+										clamp(particle->getPosition().y, _b, _t)));
 
-					particle->setVelocity((particle->getPosition() - p0) / _dt);
-				}
-#else
-					
-				if (particle->getPosition().x < _l || particle->getPosition().y < _b || particle->getPosition().z < _back ||
-					particle->getPosition().x > _r || particle->getPosition().y > _t || particle->getPosition().z > _front) {
-					const Vec p0 = particle->getPosition();
-					// Ajustement de la position de la particule pour éviter les dépassements des limites dans toutes les dimensions
-					particle->setPosition(Vec(
-						clamp(particle->getPosition().x, _l, _r),
-						clamp(particle->getPosition().y, _b, _t),
-						clamp(particle->getPosition().z, _back, _front)
-					));
+									particle->setVelocity((particle->getPosition() - p0) / _dt);
+								}
+				#else
 
-					// Mise à jour de la vitesse de la particule en fonction du nouveau déplacement
-					particle->setVelocity((particle->getPosition() - p0) / _dt);
-				}
-#endif
+								if (particle->getPosition().x < _l || particle->getPosition().y < _b || particle->getPosition().z < _back ||
+									particle->getPosition().x > _r || particle->getPosition().y > _t || particle->getPosition().z > _front) {
+									const Vec p0 = particle->getPosition();
+									// Ajustement de la position de la particule pour éviter les dépassements des limites dans toutes les dimensions
+									particle->setPosition(Vec(
+										clamp(particle->getPosition().x, _l, _r),
+										clamp(particle->getPosition().y, _b, _t),
+										clamp(particle->getPosition().z, _back, _front)
+									));
 
-		
-	*/
+									// Mise à jour de la vitesse de la particule en fonction du nouveau déplacement
+									particle->setVelocity((particle->getPosition() - p0) / _dt);
+								}
+				#endif
+
+
+					*/
 
 #ifndef VISCOELASTIC
 
-				//collision gesture
+					//collision gesture
 				if (position.x<_l || position.y<_b || position.x>_r || position.y>_t)
-					need_res.push_back(i);{
-				for (
-					std::vector<tIndex>::const_iterator it = need_res.begin();
-					it < need_res.end();
-					++it) {
-					const Vec p0 = _particles[*it].getPosition();
-
-					_particles[*it].setPosition(Vec(clamp(_particles[*it].getPosition().x, _l, _r),
-						clamp(_particles[*it].getPosition().y, _b, _t)));
-					_particles[*it].setVelocity((_particles[*it].getPosition() - p0) / _dt);
-					//#else
-
-									// Gestion des collisions en 3D
-					if (_particles[i].getPosition().x < _l || _particles[i].getPosition().y < _b ||
-						_particles[i].getPosition().x > _r || _particles[i].getPosition().y > _t) {
-						need_res.push_back(i);
-					}
-
-					for (std::vector<tIndex>::iterator it = need_res.begin(); it != need_res.end(); ++it) {
+					need_res.push_back(i); {
+					for (
+						std::vector<tIndex>::const_iterator it = need_res.begin();
+						it < need_res.end();
+						++it) {
 						const Vec p0 = _particles[*it].getPosition();
 
-						// Correction de la position en 3D pour inclure les limites pour Z
 						_particles[*it].setPosition(Vec(clamp(_particles[*it].getPosition().x, _l, _r),
 							clamp(_particles[*it].getPosition().y, _b, _t)));
-
-						// Mise à jour de la vitesse basée sur la nouvelle position en 3D
 						_particles[*it].setVelocity((_particles[*it].getPosition() - p0) / _dt);
+						//#else
+
+										// Gestion des collisions en 3D
+						if (_particles[i].getPosition().x < _l || _particles[i].getPosition().y < _b ||
+							_particles[i].getPosition().x > _r || _particles[i].getPosition().y > _t) {
+							need_res.push_back(i);
+						}
+
+						for (std::vector<tIndex>::iterator it = need_res.begin(); it != need_res.end(); ++it) {
+							const Vec p0 = _particles[*it].getPosition();
+
+							// Correction de la position en 3D pour inclure les limites pour Z
+							_particles[*it].setPosition(Vec(clamp(_particles[*it].getPosition().x, _l, _r),
+								clamp(_particles[*it].getPosition().y, _b, _t)));
+
+							// Mise à jour de la vitesse basée sur la nouvelle position en 3D
+							_particles[*it].setVelocity((_particles[*it].getPosition() - p0) / _dt);
 
 						}
 					}
@@ -1433,33 +1440,33 @@ private:
 
 #ifndef VISCOELASTIC
 
-					//update colors
-					_col[i * 4 + 0] = 0.6;
-					_col[i * 4 + 1] = 0.6;
-					_col[i * 4 + 2] = density / _d0;
+				//update colors
+				_col[i * 4 + 0] = 0.6;
+				_col[i * 4 + 1] = 0.6;
+				_col[i * 4 + 2] = density / _d0;
 
 
 
-					//update Velocity lines
-					if (gShowVel) {
+				//update Velocity lines
+				if (gShowVel) {
 #ifndef THREE_D
-						_vln[i * 4 + 0] = position.x;
-						_vln[i * 4 + 1] = position.y;
-						_vln[i * 4 + 2] = position.x + velocity.x;
-						_vln[i * 4 + 3] = position.y + velocity.y;
+					_vln[i * 4 + 0] = position.x;
+					_vln[i * 4 + 1] = position.y;
+					_vln[i * 4 + 2] = position.x + velocity.x;
+					_vln[i * 4 + 3] = position.y + velocity.y;
 #else
-						_vln[i * 6 + 0] = position.x;
-						_vln[i * 6 + 1] = position.y;
-						_vln[i * 6 + 2] = position.z;
-						_vln[i * 6 + 3] = position.x + velocity.x; // Point final basé sur la vitesse
-						_vln[i * 6 + 4] = position.y + velocity.y;
-						_vln[i * 6 + 5] = position.z + velocity.z;
+					_vln[i * 6 + 0] = position.x;
+					_vln[i * 6 + 1] = position.y;
+					_vln[i * 6 + 2] = position.z;
+					_vln[i * 6 + 3] = position.x + velocity.x; // Point final basé sur la vitesse
+					_vln[i * 6 + 4] = position.y + velocity.y;
+					_vln[i * 6 + 5] = position.z + velocity.z;
 #endif
 
-					}
+				}
 #endif
 
-				
+
 
 			}
 		}
@@ -1478,8 +1485,8 @@ private:
 
 		// assign cell to each particle
 		for (int i = 0; i < particleCount(); ++i) {
-			int cellX = static_cast<int>(_particles[i].getPosition() .x);
-			int cellY = static_cast<int>(_particles[i].getPosition() .y);
+			int cellX = static_cast<int>(_particles[i].getPosition().x);
+			int cellY = static_cast<int>(_particles[i].getPosition().y);
 #ifdef THREE_D
 			int cellZ = static_cast<int>(_particles[i].getPosition().z); // Inclure la coordonnée Z
 			if (cellX >= 0 && cellX < _resX && cellY >= 0 && cellY < _resY && cellZ >= 0 && cellZ < _resZ) { // Vérification pour Z
@@ -1491,13 +1498,13 @@ private:
 #endif
 
 			}
+			}
 		}
-	}
 
 	void computeAllNeighbors() {
 		for (tIndex i = 0; i < particleCount(); ++i) {
 			std::vector<tIndex> neighbors = getNeighbors(i); // Calcul local des voisins
-			_particles[i].changeNeighbors( neighbors); // Mise à jour sécurisée de la structure partagée
+			_particles[i].changeNeighbors(neighbors); // Mise à jour sécurisée de la structure partagée
 			//_neighborsOf.push_back(neighbors);
 		}
 	}
@@ -1512,14 +1519,14 @@ private:
 			for (const tIndex& j : neigh) {
 				Vec r_ij = _particles[i].getPosition() - _particles[j].getPosition();  // Distance entre la particule i et j
 				Real influence = _kernel.w(r_ij);
-				
+
 				density += _m0 * influence;
 			}
 			//density compute
 			_particles[i].setDensity(density);
 
 			//pressure compute
-			_particles[i].setPressure( std::max(_k * ((float)pow((density / _d0), _gamma) - 1.0f), 0.0f));
+			_particles[i].setPressure(std::max(_k * ((float)pow((density / _d0), _gamma) - 1.0f), 0.0f));
 		}
 
 
@@ -1547,7 +1554,7 @@ private:
 					Vec u_ij = _particles[i].getVelocity() - _particles[j].getVelocity();
 					Vec gradW = _kernel.grad_w(r_ij);
 					//pressure
-					fpressure += gradW * ((_particles[i].getPressure() / (_particles[i].getDensity()* _particles[i].getDensity())) + (_particles[j].getPressure() / (_particles[j].getDensity()* _particles[j].getDensity())));
+					fpressure += gradW * ((_particles[i].getPressure() / (_particles[i].getDensity() * _particles[i].getDensity())) + (_particles[j].getPressure() / (_particles[j].getDensity() * _particles[j].getDensity())));
 
 					//Viscosity
 					// avoid to divide by 0
@@ -1566,7 +1573,7 @@ private:
 
 			_particles[i].addToVelocity(_dt * accel);
 			//update position 
-			_particles[i].addToPosition( _dt * _particles[i].getVelocity());
+			_particles[i].addToPosition(_dt * _particles[i].getVelocity());
 #endif
 
 #ifdef PARTICLES_AS_BOUNDARIES
@@ -1574,9 +1581,9 @@ private:
 				accel += _g - fpressure + (2.0 * _nu * fvisco);
 				//update velocity
 
-				_particles[i].addToVelocity( _dt * accel;
+				_particles[i].addToVelocity(_dt * accel;
 				//update position 
-				_particles[i].addToPosition( _dt * _vel[i];
+				_particles[i].addToPosition(_dt * _vel[i];
 
 #ifdef ADAPTATIVE_TIME
 				//update max velocity (for _dt adapatation )
@@ -1611,9 +1618,9 @@ private:
 
 #ifndef PARTICLES_AS_BOUNDARIES
 #ifndef THREE_D
-			_particles[i].addToPosition( _dt * _particles[i].getVelocity());
+			_particles[i].addToPosition(_dt * _particles[i].getVelocity());
 			//collision gesture
-			if (_particles[i].getPosition() .x<_l || _particles[i].getPosition() .y<_b || _particles[i].getPosition() .x>_r || _particles[i].getPosition() .y>_t)
+			if (_particles[i].getPosition().x<_l || _particles[i].getPosition().y<_b || _particles[i].getPosition().x>_r || _particles[i].getPosition().y>_t)
 				need_res.push_back(i);
 			for (
 				std::vector<tIndex>::const_iterator it = need_res.begin();
@@ -1633,16 +1640,16 @@ private:
 			//update colors
 			_col[i * 4 + 0] = 0.6;
 			_col[i * 4 + 1] = 0.6;
-			_col[i * 4 + 2] = _particles[i].getDensity()/ _d0;
+			_col[i * 4 + 2] = _particles[i].getDensity() / _d0;
 
 
 
 			//update Velocity lines
 			if (gShowVel) {
-				_vln[i * 4 + 0] = _particles[i].getPosition() .x;
-				_vln[i * 4 + 1] = _particles[i].getPosition() .y;
-				_vln[i * 4 + 2] = _particles[i].getPosition() .x +  _particles[i].getVelocity().x;
-				_vln[i * 4 + 3] = _particles[i].getPosition() .y +  _particles[i].getVelocity().y;
+				_vln[i * 4 + 0] = _particles[i].getPosition().x;
+				_vln[i * 4 + 1] = _particles[i].getPosition().y;
+				_vln[i * 4 + 2] = _particles[i].getPosition().x + _particles[i].getVelocity().x;
+				_vln[i * 4 + 3] = _particles[i].getPosition().y + _particles[i].getVelocity().y;
 			}
 #endif
 
@@ -1715,7 +1722,7 @@ private:
 	}*/
 
 
-	bool isBoundary(const tIndex& p)
+	bool isBoundary(const tIndex & p)
 	{
 #ifdef PARTICLES_AS_BOUNDARIES
 		return (p >= (particleCount() - _particleBoundariesNumber));
@@ -1728,10 +1735,10 @@ private:
 
 	}
 
-	bool checkLeak(const tIndex& i)
+	bool checkLeak(const tIndex & i)
 	{
 #ifndef THREE_D
-		if (_particles[i].getPosition() .x<(_l - 2.0f) || _particles[i].getPosition() .y<(_b - 2.0f) || _particles[i].getPosition() .x>(_r + 2.0f) || _particles[i].getPosition() .y>(_t + 2.0f))
+		if (_particles[i].getPosition().x<(_l - 2.0f) || _particles[i].getPosition().y<(_b - 2.0f) || _particles[i].getPosition().x>(_r + 2.0f) || _particles[i].getPosition().y>(_t + 2.0f))
 #else
 		if (_particles[i].getPosition().x < (_l - 2.0f) || _particles[i].getPosition().y < (_b - 2.0f) || _particles[i].getPosition().z < (_back - 2.0f) || _particles[i].getPosition().x >(_r + 2.0f) || _particles[i].getPosition().y >(_t + 2.0f) || _particles[i].getPosition().z >(_front + 2.0f))
 #endif
@@ -1742,9 +1749,9 @@ private:
 	}
 	int getLeakNumber() { return leakedParticles.size(); }
 
-	void resolveCollisionBoundary(const tIndex& boundary, const tIndex& j) {
+	void resolveCollisionBoundary(const tIndex & boundary, const tIndex & j) {
 
-		Vec r_ij = _particles[boundary].getPosition() - _particles[j].getPosition() ;  // Distance entre la particule boundary et j. r_ij.x = dx, r_ij =dy
+		Vec r_ij = _particles[boundary].getPosition() - _particles[j].getPosition();  // Distance entre la particule boundary et j. r_ij.x = dx, r_ij =dy
 		Real distance = r_ij.length();
 
 		if (!checkCollision(distance)) return; //if no collision return
@@ -1801,14 +1808,14 @@ private:
 				density += _m0 * influence;
 
 			}
-			_particles[i].setDensity( density);
+			_particles[i].setDensity(density);
 		}
 	}
 
 	void computePressure()
 	{
 		for (int i = 0; i < particleCount(); i++) {
-			_particles[i].setPressure( std::max(_k * ((float)pow((_particles[i].getDensity()/ _d0), _gamma) - 1.0f), 0.0f));
+			_particles[i].setPressure(std::max(_k * ((float)pow((_particles[i].getDensity() / _d0), _gamma) - 1.0f), 0.0f));
 		}
 	}
 
@@ -1829,7 +1836,7 @@ private:
 				Vec r_ij = _particles[i].getPosition() - _particles[j].getPosition();  // Distance entre la particule i et j
 				Real distance = r_ij.length();
 				if (distance < _kernel.supportRadius()) {
-					f += _kernel.grad_w(r_ij) * _m0 * ((_particles[i].getPressure() / (_particles[i].getDensity()* _particles[i].getDensity())) + (_particles[j].getPressure() / (_particles[j].getDensity()* _particles[j].getDensity())));
+					f += _kernel.grad_w(r_ij) * _m0 * ((_particles[i].getPressure() / (_particles[i].getDensity() * _particles[i].getDensity())) + (_particles[j].getPressure() / (_particles[j].getDensity() * _particles[j].getDensity())));
 				}
 			}
 			_acc[i] += -f / _m0;
@@ -1858,14 +1865,14 @@ private:
 		}
 	}
 
-	
+
 	// simple collision detection/resolution for each particle
 	void resolveCollisionBoundary()
 	{
 		std::vector<tIndex> need_res;
 #ifndef THREE_D
 		for (tIndex i = 0; i < particleCount(); ++i) {
-			if (_particles[i].getPosition() .x<_l || _particles[i].getPosition() .y<_b || _particles[i].getPosition() .x>_r || _particles[i].getPosition() .y>_t)
+			if (_particles[i].getPosition().x<_l || _particles[i].getPosition().y<_b || _particles[i].getPosition().x>_r || _particles[i].getPosition().y>_t)
 				need_res.push_back(i);
 		}
 
@@ -1874,7 +1881,7 @@ private:
 			it < need_res.end();
 			++it) {
 			const Vec p0 = _particles[*it].getPosition();
-			
+
 			_particles[*it].setPosition(Vec(clamp(_particles[*it].getPosition().x, _l, _r),
 				clamp(_particles[*it].getPosition().y, _b, _t)));
 
@@ -1894,7 +1901,7 @@ private:
 			_particles[*it].setPosition(Vec(
 				clamp(_particles[*it].getPosition().x, _l, _r),
 				clamp(_particles[*it].getPosition().y, _b, _t),
-				clamp(_particles[*it].getPosition().z,_back , _front)
+				clamp(_particles[*it].getPosition().z, _back, _front)
 			));
 
 			// Mise à jour de la vitesse de la particule en fonction du nouveau déplacement
@@ -1902,7 +1909,7 @@ private:
 #endif
 
 		}
-	}
+		}
 
 	void updateColor()
 	{
@@ -1935,7 +1942,7 @@ private:
 	}
 
 	inline tIndex idx1d(const int& i, const int& j) { return i + j * resX(); }
-	inline tIndex idx1d(const int& i, const int& j, const int& k) {return i + (j * resX()) +( k * resX() * resY()); }
+	inline tIndex idx1d(const int& i, const int& j, const int& k) { return i + (j * resX()) + (k * resX() * resY()); }
 	inline tIndex idx1dnei(const int& i, const int& j) { return i + j * MAX_NEIGHBORS; }
 
 	const CubicSpline _kernel;
@@ -2002,7 +2009,7 @@ private:
 	bool _SPHfluid;
 	bool _doubleDensity;
 
-};
+	};
 #ifndef THREE_D
 SphSolver gSolver(0.08, 0.5, 1e3, Vec(0, -9.8), 0.01, 7.0);
 #else
@@ -2042,7 +2049,7 @@ void printHelp()
 
 
 // Executed each time the window is resized. Adjust the aspect ratio and the rendering viewport to the current window.
-void windowSizeCallback(GLFWwindow* window, int width, int height)
+void windowSizeCallback(GLFWwindow * window, int width, int height)
 {
 	gWindowWidth = width;
 	gWindowHeight = height;
@@ -2092,14 +2099,14 @@ void resetSim()
 #ifndef THREE_D
 	gSolver.initScene(48, 32, 32, 16);
 #else
-	gSolver.initScene(24, 16, 16, 16, 8, 8);
+	gSolver.initScene(24, 16, 4, 8, 4, 4);//	gSolver.initScene(24, 16, 8, 16, 8, 8);
 
 #endif
 
 
 }
 // Executed each time a key is entered.
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+void keyCallback(GLFWwindow * window, int key, int scancode, int action, int mods)
 {
 	if (action == GLFW_PRESS && key == GLFW_KEY_H) {
 		printHelp();
@@ -2125,9 +2132,9 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 		resetSim();
 	}
 }
-			
+
 // Called each time the mouse cursor moves
-void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
+void cursorPosCallback(GLFWwindow * window, double xpos, double ypos)
 {
 	ImGuiIO& io = ImGui::GetIO();
 	if (io.WantCaptureMouse) {
@@ -2150,7 +2157,7 @@ void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
 		g_cam->setPosition(g_baseTrans + g_meshScale * glm::vec3(0.0, 0.0, dy));
 	}
 }
-void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+void mouseButtonCallback(GLFWwindow * window, int button, int action, int mods)
 {
 	ImGuiIO& io = ImGui::GetIO();
 	if (io.WantCaptureMouse) {
@@ -2189,7 +2196,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 	}
 }
 // Callback pour les événements de défilement de la molette de la souris
-void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
+void scrollCallback(GLFWwindow * window, double xoffset, double yoffset) {
 	ImGuiIO& io = ImGui::GetIO();
 	if (io.WantCaptureMouse) {
 		// Ne pas traiter les mouvements de la souris pour la scène 3D si ImGui veut capturer la souris
@@ -2218,14 +2225,14 @@ void initGLFW()
 	// glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_ANY_PROFILE); // for OpenGL below 3.2
 	glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
-	
+
 	// Create the window
 #ifdef THREE_D
 	gWindowWidth = gSolver.resX() * kViewScale * 6;
-	gWindowHeight = gSolver.resY() * kViewScale* 6;
+	gWindowHeight = gSolver.resY() * kViewScale * 6;
 #else
 	gWindowWidth = gSolver.resX() * kViewScale;
-	gWindowHeight = gSolver.resY()  * kViewScale;
+	gWindowHeight = gSolver.resY() * kViewScale;
 #endif
 
 	gWindow = glfwCreateWindow(
@@ -2256,7 +2263,7 @@ void initGLFW()
 
 void clear();
 
-void exitOnCriticalError(const std::string& message)
+void exitOnCriticalError(const std::string & message)
 {
 	std::cerr << "> [Critical error]" << message << std::endl;
 	std::cerr << "> [Clearing resources]" << std::endl;
@@ -2301,12 +2308,13 @@ void intiCamera()
 }
 void init()
 {
-	
+
 
 #ifndef THREE_D
 	gSolver.initScene(48, 32, 32, 16);
 #else
-	gSolver.initScene(24, 16, 8, 16, 8, 8);
+	gSolver.initScene(24, 16, 4, 8, 4, 4);//	gSolver.initScene(24, 16, 8, 16, 8, 8);
+
 
 #endif
 	initGLFW();                   // Windowing system
@@ -2317,13 +2325,13 @@ void init()
 	intiCamera();
 	g_meshScale = 24;
 	// Adjust the camera to the mesh
-	g_cam->setPosition( glm::vec3(1.5, 1.5, 7.5));
-	g_cam->setNear(g_meshScale/100.f);
-	g_cam->setFar(6.0*g_meshScale);
+	g_cam->setPosition(glm::vec3(1.5, 1.5, 7.5));
+	g_cam->setNear(g_meshScale / 100.f);
+	g_cam->setFar(6.0 * g_meshScale);
 }
 
 void clear()
-{	
+{
 	g_cam.reset();
 	glfwDestroyWindow(gWindow);
 	// Nettoyage
@@ -2498,7 +2506,7 @@ void render()
 
 		glDisableClientState(GL_VERTEX_ARRAY);
 	}glDisableClientState(GL_VERTEX_ARRAY);
-	
+
 
 #endif
 
@@ -2692,4 +2700,3 @@ int main(int argc, char** argv)
 	std::cout << " > Quit" << std::endl;
 	return EXIT_SUCCESS;
 }
-
