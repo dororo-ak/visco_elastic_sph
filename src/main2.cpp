@@ -18,7 +18,6 @@
 
 #define _USE_MATH_DEFINES
 
-//#define  FASTVERSION //faster version by merging some function
 #define PARALLEL_CPU_VERSION // faster version than FASTVERSION
 #define ADAPTATIVE_TIME
 
@@ -104,7 +103,9 @@ bool gApplyVisco = false;
 bool gApplySprings = false;
 bool gSPHfluid = true;
 bool gDoubleDensity = false;
-
+bool gAdaptativeTime = true;
+bool gAddParticleMode = false;
+bool gLeftMouseButtonPressed = false;
 int gSavedCnt = 0;
 
 const int kViewScale = 30;
@@ -281,20 +282,24 @@ public:
 	{
 		_L = lzero;
 	}
+	void addtoLlist(Real l)
+	{
+		_L.push_back(l);
+	}
 	Real getL(int i) { return _L[i]; }
 	std::vector<Real>  getL() { return _L; }
 	void setL(int i, Real l) { _L[i] = l; }
 	void setL(std::vector<Real> l) { _L = l; }
-	void addToL(int i, Real l) { _L[i] += l; }
+	void additionToL(int i, Real l) { _L[i] += l; }
 
 };
 
 class SphSolver {
 public:
 	explicit SphSolver(
-		const Real nu = 0.01, const Real h = 0.5f, const Real density = 10,
+		const Real nu = 0.1, const Real h = 0.5f, const Real density = 10,
 		const Vec g = Vec(0, -9.8), const Real eta = 0.001f, const Real gamma = 7.0,
-		const Real sigma = 1.3f, const Real beta = 1.1f, const Real L0 = 2.f, const Real k_spring = 0.00001f, const Real alpha = 0.3f, const Real gammaSpring = 0.004f) :
+		const Real sigma = 10.3f, const Real beta = 1.1f, const Real L0 = 2.f, const Real k_spring = 0.0001f, const Real alpha = 0.8f, const Real gammaSpring = 0.004f) :
 		//gammaSpring between 0 et 0.2
 		_kernel(h), _nu(nu), _h(h), _d0(density),
 		_g(g), _eta(eta), _gamma(gamma),
@@ -328,23 +333,27 @@ public:
 		_applySprings = false;
 		_SPHfluid = false;
 #else
-		/*_d0ViscoELas = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif.
-		_dt = 0.0004f;
-		_kViscoElas = 0.004;//0.4f;//30.f;
-		_k_spring = 0.3f;
+		_d0ViscoELas = 10.f; // Diminuer _d0 pourrait rendre le fluide plus compressible, permettant à la gravité d'avoir un impact plus significatif.
+		_dt = 0;
+		_k =0.04;//30.f;//// 0.4f;
+		_k = 20.f;
+		_k_spring = 0.003f;
 		//_alpha = 0.1f;
-		_h = .5f;
+		_h = 3.f;
 		_hVisco = 1.5f;
+		_d0 = 5.f;
+		_kNear = _k * 2.f;//0.01;//
+		_L0 = _h;//81.5f;
+		_nu = 0.06;
 
-		_kNear = _kViscoElas * 50.f;//0.01;//
-		_L0 = 1.5f;
 		//_alpha = 0.001f;
 		_applyGravity = true;
 		_applyViscosity = false;
 		_applySprings = false;
-		_SPHfluid = false;*/
+		_SPHfluid = false;
+		_isAdaptativeDT = true;
 
-		_dt = 0.07f;
+		/*_dt = 0.07f;
 		_h = .5f;
 		_L0 = _h;
 		_k = 0.004;//0.4f;//30.f;
@@ -360,7 +369,7 @@ public:
 		_applyGravity = false;
 		_applyViscosity = false;
 		_applySprings = false;
-		_SPHfluid = true;
+		_SPHfluid = true;*/
 #endif
 
 #ifdef VISCO_FLUID
@@ -382,13 +391,17 @@ public:
 #endif
 
 #endif
-#ifdef ADAPTATIVE_TIME
-		_dt = (0.09f * _h) / _g.length();
-#endif
+		if (_isAdaptativeDT) {
+			_dt = (0.004f * _h) / _g.length();
+			
+		}
+		else {
+			_dt = 0.004f;
+		}
 #ifndef THREE_D
 		_m0 = _d0 * _h * _h;
 #else
-		_m0 = 1.0f;
+		_m0 = 1.0f;//_m0 = _d0 * _h * _h;//
 #endif
 
 
@@ -494,6 +507,7 @@ public:
 		_pos = std::vector<Vec>(_particles.size());
 		_col = std::vector<float>(_particles.size() * 4, 1.0); // RGBA
 		_vln = std::vector<float>(_particles.size() * 4, 0.0); // GL_LINES
+		leakedParticles.clear();
 		std::vector<Real> lzero = std::vector<Real>(_particles.size(), 0);
 		for (int i = 0; i < particleCount(); i++) {
 			_pos[i] = _particles[i].getPosition();
@@ -513,6 +527,9 @@ public:
 		_resX = res_x;
 		_resY = res_y;
 		_resZ = res_z; // Ajout de la résolution pour la dimension z
+		_fWidth = f_width;
+		_fHeight = f_height;
+		_fDepth = f_depth;
 		_particleBoundariesNumber = 0;
 
 		boundaryOffset = 0.25f;
@@ -525,28 +542,31 @@ public:
 		_back = 0.25f - boundaryOffset; // Nouvelle limite pour la face avant
 		_front = static_cast<Real>(res_z) - 0.25f + boundaryOffset; // Nouvelle limite pour la face arrière
 
-		float Offset = 0.25f;//0.f;//
-		float particleSpace = 0.5f;
-		for (float k = 0.; k < f_depth; k += 2 * particleSpace) {
+		float Offset = 0.0f;//0.f;//
+		float particleSpace =.5f;
+		int bringingTogetherFactor = 1; // make the particle more or less close together without changing their numbers. Different from 0
+		//TODO : decommenter si je veux mon set de particules 
+		for (float k = 0.; k < f_depth ; k += 2 * particleSpace ) {
 			for (float j = 0; j < f_height; j += 2 * particleSpace) {
 				for (float i = 0; i < f_width; i += 2 * particleSpace) {
 					// Pour chaque position (i, j), créer plusieurs particules à différentes hauteurs (k)
-					for (float zOffset = 0; zOffset <= particleSpace; zOffset += particleSpace) {
-						/*_particles.push_back(Particle(Vec(i + 0.25f + NUM_BOUNDARY_LAYER * _h, j + 0.25f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
-						_particles.push_back(Particle(Vec(i + 0.75f + NUM_BOUNDARY_LAYER * _h, j + 0.25f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
-						_particles.push_back(Particle(Vec(i + 0.25f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
-						_particles.push_back(Particle(Vec(i + 0.75f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));*/
-						_particles.push_back(Particle(Vec(i + Offset + NUM_BOUNDARY_LAYER * _h, j + Offset + NUM_BOUNDARY_LAYER * _h, k + Offset + zOffset + NUM_BOUNDARY_LAYER * _h)));
-						_particles.push_back(Particle(Vec(i + Offset + particleSpace + NUM_BOUNDARY_LAYER * _h, j + Offset + NUM_BOUNDARY_LAYER * _h, k + Offset + zOffset + NUM_BOUNDARY_LAYER * _h)));
-						_particles.push_back(Particle(Vec(i + Offset + NUM_BOUNDARY_LAYER * _h, j + Offset + particleSpace + NUM_BOUNDARY_LAYER * _h, k + Offset + zOffset + NUM_BOUNDARY_LAYER * _h)));
-						_particles.push_back(Particle(Vec(i + Offset + particleSpace + NUM_BOUNDARY_LAYER * _h, j + Offset + particleSpace + NUM_BOUNDARY_LAYER * _h, k + Offset + zOffset + NUM_BOUNDARY_LAYER * _h)));
+					for (float zOffset = 0.25; zOffset <= 0.75; zOffset +=  particleSpace) {
 
-						//_particles.push_back(Particle(Vec(i + 0.25f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
-						//_particles.push_back(Particle(Vec(i + 0.75f + NUM_BOUNDARY_LAYER * _h, j + 0.75f + NUM_BOUNDARY_LAYER * _h, k + zOffset + NUM_BOUNDARY_LAYER * _h)));
+						_particles.push_back(Particle(Vec(i + 0.25f , j + 0.25f , k + zOffset)));
+						_particles.push_back(Particle(Vec(i + 0.75f , j + 0.25f , k + zOffset)));
+						_particles.push_back(Particle(Vec(i + 0.25f , j + 0.75f , k + zOffset)));
+						_particles.push_back(Particle(Vec(i + 0.75f , j + 0.75f , k + zOffset)));
+
 					}
 				}
 			}
 		}
+
+		/*_particles.push_back(Particle(Vec( 0.25f,  0.25f,  0.25f)));
+		_particles.push_back(Particle(Vec( 0.75f,  0.25f, 0.25f)));
+		_particles.push_back(Particle(Vec( 0.25f,  0.75f, 0.25f)));
+		_particles.push_back(Particle(Vec( 0.75f,  0.75f, 0.25f)));*/
+		
 		// Construire les limites avec des particules
 #ifdef PARTICLES_AS_BOUNDARIES
 		_particleBoundariesNumber = 0;
@@ -606,23 +626,25 @@ public:
 		_col = std::vector<float>(_particles.size() * 4, 1.0); // RGBA
 		_vln = std::vector<float>(_particles.size() * 6, 0.0); // GL_LINES
 		std::vector<Real> lzero = std::vector<Real>(_particles.size(), 0);
+		leakedParticles.clear();
+
 		for (int i = 0; i < particleCount(); i++) {
 			_pos[i] = _particles[i].getPosition();
 			_particles[i].initL(lzero);
 		}
 
 		//adjust _d0
-		_h = 1.f;
-		_d0 = (particleCount() / 512)/ particleSpace; //64 = 2^(2*dim)
-		_k = .4f;
-		_m0 = particleSpace;
-
+		/*_h = .50f;
+		_d0 = 1e3;//((particleCount()* bringingTogetherFactor ) / 128) ; //64 = 2^(2*dim)
+		_k = _d0 * _c * _c / _gamma;//40.f;
+		_m0 =  _d0 * _h * _h;//particleSpace  / bringingTogetherFactor;
+		_dt = 0.002f;*/
 		updateColor();
 		std::cout << "Total Number of particle : " << particleCount() << " | Number of non boundary particles : " << particleCount() - _particleBoundariesNumber << " |  Number of boundary particles : " << _particleBoundariesNumber << std::endl;
 	}
 
 #endif
-
+	
 
 	int n = 0;
 	void update()
@@ -690,7 +712,7 @@ public:
 #endif
 
 #ifdef VISCOELASTIC
-#ifdef PARALLEL_CPU_VERSION
+
 		buildCellsNeighborhoud_parallel();
 		computeAllNeighbors_parallel();
 		if (_SPHfluid) {
@@ -698,18 +720,8 @@ public:
 			ApplyForcesAndComputePosition_parallel();
 		}
 
-
-#endif
-
-#ifndef PARALLEL_CPU_VERSION
-		buildCellsNeighborhoud();
-		computeAllNeighbors();
-		//computeAllNeighborsSimple_viscoelastic();
-#endif
-
-		computeVelocities_viscoelsatic();
-		updatePosition_viscoelastic();
-		//heree put adjustspring and applyspringdisplacement Sans le spring adjust les particule se repoussent entre elles
+		computeVelocities_viscoelsatic(); //Aply gravity and viscosity
+		updatePosition_viscoelastic(); //update previous and predicted position
 		if (_applySprings) {
 			adjustSprings();
 			applySpringDisplacements();
@@ -719,26 +731,21 @@ public:
 			computePressureDoubleDensity();
 
 
-		//here i add this method beacuse i want my fluid to have more a liquid fluid behavior
-
-
-
 		//here resoolve collision
 		resolveCollisionBoundary();
-
 		//last
 		updateNextVelocityAndColors_viscoelastic();
 		updatePosList(); //for the rendering
 
-#ifdef  ADAPTATIVE_TIME
-		_maxVel += _g.length() * _dt;
+		if (_isAdaptativeDT) {
+			_maxVel += (_g.length() * _dt); //avoird maxVel = 0;
 
-		_dt = (0.4f * _h) / _maxVel; //CFL condition
-		//std::cout << "Vmax=" << _maxVel << " dt=" << _dt << std::flush;
+			_dt = (0.4f * _h) / _maxVel; //CFL condition
+			//std::cout << "Vmax=" << _maxVel << " dt=" << _dt << std::flush;
 
-		_maxVel = 0.f;
-		n++;
-#endif
+			_maxVel = 0.f;
+			n++;
+		}
 #endif
 
 
@@ -786,6 +793,9 @@ public:
 	Real getDt() { return _dt; }
 	Real getSigma() { return _sigma; }
 	Real getGammaSpring() { return _gammaSpring; }
+	Real getNu() { return _nu; }
+	int const getLeaksNumber() const { return leakedParticles.size(); }
+
 
 	void applyGravity(bool q) { _applyGravity = q; }
 	bool isGravityApplied() { return _applyGravity; }
@@ -793,11 +803,62 @@ public:
 	bool isViscosityApplied() { return _applyViscosity; }
 	void applySprings(bool q) { _applySprings = q; }
 	bool isSpringsApplied() { return _applySprings; }
-	void applySPH(bool q) { _SPHfluid = q; }
+	void applySPH(bool q)
+	{
+		_SPHfluid = q;
+		if(q  && !_doubleDensity) {
+			_kNear = 40.0f;
+			_k = 20.0f;
+		}
+	}
 	bool isSPHApplied() { return _SPHfluid; }
 	bool isDoubleDensityApplied() { return _doubleDensity; }
-	void applyDoubleDensity(bool q) { _doubleDensity = q; }
-	void updateFactors(Real dt, Real d0, Real k, Real kNear, Real kSpring, Real h, Real L0, Real alpha, Real beta, Real sigma, Real gammaSpring)
+	void applyDoubleDensity(bool q)
+	{
+		_doubleDensity = q;
+		if(q )
+		{
+			_kNear = 0.40f;
+			_k = 0.10f;
+		}
+	}
+	bool isAdaptativeTime() { return _isAdaptativeDT; }
+	void applyAdaptativeTime(bool q)
+	{
+		if(q == true){
+			if(_isAdaptativeDT == false)
+			initScene(resX(), resY(), resZ(), width(), height(), depth());
+		}else{
+			if(_isAdaptativeDT == true)
+				initScene(resX(), resY(), resZ(), width(), height(), depth());
+
+		}
+		_isAdaptativeDT = q;
+
+	}
+	void addParticles(const Vec& pos){
+		Vec newPos = Vec(
+			clamp(pos.x, _l, _r),
+			clamp(pos.y, _b, _t),
+			clamp(pos.z, _back, _front));
+		for (Particle& particule : _particles) {
+			particule.addtoLlist(0);
+		}
+		Particle particle = Particle(newPos);
+		std::vector<Real> lzero = std::vector<Real>(_particles.size()+1, 0);
+		particle.initL(lzero);
+		_particles.push_back(particle);
+
+		//update others listes
+		//_pos = std::vector<Vec>(_particles.size());
+		_pos.push_back(newPos) ;
+		_col = std::vector<float>(_particles.size() * 4, 1.0); // RGBA
+		_vln = std::vector<float>(_particles.size() * 6, 0.0); // GL_LINES
+		updateColor();
+
+
+	}
+	void updateFactors(Real dt, Real d0, Real k, Real kNear, Real kSpring, Real h, Real L0, Real alpha, Real beta, Real sigma, Real gammaSpring, Real nu)
 	{
 		_dt = dt;
 		_d0 = d0;
@@ -810,10 +871,11 @@ public:
 		_beta = beta;
 		_sigma = sigma;
 		_gammaSpring = gammaSpring;
+		_nu = nu;
 		std::cout << '.' << std::flush;
 	}
 	//
-	tIndex particleCount() const { return _particles.size(); }
+	tIndex particleCount() const { return _particles.size() - getLeaksNumber(); }
 	const Vec& position(const tIndex i) const {
 		return _pos[i];
 	}
@@ -823,53 +885,31 @@ public:
 	int resX() const { return _resX; }
 	int resY() const { return _resY; }
 	int resZ() const { return _resZ; }
-	void updatePosList()
-	{
+	int width() const { return _fWidth; }
+	int height() const { return _fHeight; }
+	int depth() const { return _fDepth; }
+	void updatePosList(){
 		for (int i = 0; i < particleCount(); i++)
-		{
-
-			if (checkLeak(i)) {
-
-				bool isAlreadyLeaked = false;
-				for (tIndex leak : leakedParticles)
-				{
-					if (leak == i) {
-						isAlreadyLeaked = true;
-
-					}
-				}
-				if (!isAlreadyLeaked) {
-					leakedParticles.push_back(i);
-					std::cout << "A leak happened - Number of lost particle  : " << getLeakNumber() << std::endl;
-
-				}
-
-
-			}
 			_pos[i] = _particles[i].getPosition();
-
-		}
-
 	}
 
 	Real getLoopNum()
 	{
-#ifdef ADAPTATIVE_TIME
-		if (isFirstStep) {
-			isFirstStep = false;
-			return 10;
-		}
+		if (_isAdaptativeDT){
+			if (isFirstStep) {
+				isFirstStep = false;
+				return 10;
+			}
 
 		std::cout << " loop num = " << static_cast<int> (0.01 / _dt) << std::endl;
-#endif
+	}
 		return static_cast<int> (0.1 / _dt);
 
 	}
 
 private:
 
-
-
+	
 
 	void computeVelocities_viscoelsatic()
 	{
@@ -877,11 +917,15 @@ private:
 #pragma omp parallel for
 #endif
 		for (int i = 0; i < particleCount(); ++i) {
-			if (!isBoundary(i))
-				if (_applyGravity && !_SPHfluid)
-					_particles[i].addToVelocity(_g * _dt);
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp critical
+#endif
+			{
+			if (_applyGravity && !_SPHfluid)
+				_particles[i].addToVelocity(_g * _dt);
 			if (_applyViscosity)
-				applyViscosity_viscoelastic(i); //TODO : put the code here for better performences
+				applyViscosity_viscoelastic(i); 
+		}
 		}
 	}
 
@@ -896,7 +940,7 @@ private:
 				Real q = r_ij.length() / _h;
 				if (q < 1)
 				{
-					Real u = (_particles[i].getVelocity() - _particles[j].getVelocity()).dotProduct(r_ij);
+					Real u = (_particles[i].getVelocity() - _particles[j].getVelocity()).dotProduct(r_ij.normalize());
 					if (u > 0)
 					{
 						Vec I = _dt * (1 - q) * ((_sigma * u) + (_beta * u * u)) * r_ij.normalize();
@@ -917,11 +961,34 @@ private:
 #endif
 		for (int i = 0; i < particleCount(); ++i)
 		{
-			if (!isBoundary(i))
-				_particles[i].changePosPrevious();
-			_particles[i].addToPosition(_dt * _particles[i].getVelocity());
-		}
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp critical
+#endif
 
+			 {
+
+			_particles[i].changePosPrevious();
+			_particles[i].addToPosition(_dt * _particles[i].getVelocity());
+
+			if (checkLeak(i)) {
+
+				bool isAlreadyLeaked = false;
+				for (tIndex leak : leakedParticles)
+				{
+					if (leak == i) {
+						isAlreadyLeaked = true;
+
+					}
+				}
+				if (!isAlreadyLeaked) {
+					leakedParticles.push_back(i);
+					std::cout << "A leak happened - Number of lost particle  : " << getLeaksNumber() << std::endl;
+
+				}
+
+			}
+		}
+		}
 	}
 
 	void updateNextVelocityAndColors_viscoelastic()
@@ -931,10 +998,14 @@ private:
 #endif
 		for (int i = 0; i < particleCount(); ++i)
 		{
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp critical
+#endif
+			{
 			Vec position = _particles[i].getPosition();
 			Vec velocity = (position - _particles[i].getPositionPrevious()) / _dt;
 			//TODO : remove the comment rehere
-			if (!isBoundary(i))
+			if (!_SPHfluid)
 				_particles[i].setVelocity(velocity);
 
 				if (velocity.length() > _maxVel)
@@ -970,7 +1041,7 @@ private:
 #endif
 			}
 #endif
-
+			}
 
 		}
 	}
@@ -999,16 +1070,18 @@ private:
 
 						if (r_ij_length > _L0 + d)
 						{
-							_particles[i].addToL(j, _dt * _alpha * (r_ij_length - _L0 - d));//std::max(r_ij_length - _L0 - d,0.f);
+							_particles[i].additionToL(j, _dt * _alpha * (r_ij_length - _L0 - d));//std::max(r_ij_length - _L0 - d,0.f);
 						}
 						else if (r_ij_length < _L0 - d)
 						{
-							_particles[i].addToL(j, -_dt * _alpha * (_L0 - d - r_ij_length));//std::max(_L0 - d - r_ij_length,0.f);
+							_particles[i].additionToL(j, -_dt * _alpha * (_L0 - d - r_ij_length));//std::max(_L0 - d - r_ij_length,0.f);
 						}
 					}
 				}
-				/*if (_particles[i].getL(j) > _h)
-					_particles[i].setL(j, 0.f);*/
+
+				if (_particles[i].getL(j) > _h)
+					_particles[i].setL(j, 0.f);
+					;
 			}
 		}
 	}
@@ -1026,7 +1099,7 @@ private:
 
 				if (i < j) {
 					Vec r_ij = _particles[i].getPosition() - _particles[j].getPosition();
-					Vec D = _dt * _dt * _k_spring * (1 - (_particles[i].getL(j) / _hVisco)) * (_particles[i].getL(j) - r_ij.length()) * r_ij.normalize();
+					Vec D = _dt * _dt * _k_spring * (1 - (_particles[i].getL(j) / _h)) * (_particles[i].getL(j) - r_ij.length()) * r_ij.normalize();
 					_particles[i].addToPosition(-D / 2);
 					_particles[j].addToPosition(D / 2);
 				}
@@ -1040,8 +1113,12 @@ private:
 #pragma omp parallel for
 #endif
 		for (tIndex i = 0; i < particleCount(); ++i) {
-			//#pragma omp critical
+#ifdef PARALLEL_CPU_VERSION
+			#pragma omp critical
+#endif
+
 			{
+
 				Vec r_ij = _particles[i].getPosition() - _particles[i].getPosition();  // Auto-influence
 				//Vec r_ij; 
 				Real q = r_ij.length() / _h;
@@ -1064,12 +1141,12 @@ private:
 					}
 				}
 
-				_particles[i].addToDensity(density);
-				_particles[i].addToDNear(densityNear);
+				_particles[i].setDensity(density);
+				_particles[i].setDNear(densityNear);
 				//std::cout << "Density=" << density << "  DensityNear=" << densityNear << std::endl;
 
-				Real P = std::max(_k * (density - _d0), 0.0f);
-				Real PNear = std::max(_kNear * densityNear, 0.0f);
+				Real P = _k * (density - _d0);// std::max(_k * (density - _d0), 0.0f);
+				Real PNear = _kNear * densityNear;//std::max(_kNear * densityNear, 0.0f);
 				_particles[i].setPressure(P);
 				_particles[i].setPNear(PNear);
 
@@ -1104,9 +1181,13 @@ private:
 		_pidxInGrid.resize(resX() * resY() * resZ()); // Ajustement pour une grille 3D
 #endif
 
-		//#pragma omp parallel for
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp parallel for collapse(2) // Fusionner les deux boucles for imbriquées
+#endif
 		for (int i = 0; i < particleCount(); ++i) {
-			//#pragma omp critical
+#ifdef PARALLEL_CPU_VERSION
+			#pragma omp critical
+#endif
 			{
 				int cellX = static_cast<int>(_particles[i].getPosition().x);
 				int cellY = static_cast<int>(_particles[i].getPosition().y);
@@ -1189,9 +1270,14 @@ private:
 		return neighbors;
 	}
 	void computeAllNeighbors_parallel() {
+#ifdef PARALLEL_CPU_VERSION
 #pragma omp parallel for
+#endif
+
 		for (tIndex i = 0; i < particleCount(); ++i) {
+#ifdef PARALLEL_CPU_VERSION
 #pragma omp critical
+#endif
 			{
 				_particles[i].changeNeighbors(getNeighbors(i)); // Mise à jour sécurisée de la structure partagée
 				//_neighborsOf.push_back(neighbors);
@@ -1219,13 +1305,19 @@ private:
 	 *Cette méthode peut également être parallélisée. Chaque particule calcule sa propre densité et pression, donc il n'y a pas de conflit entre les threads.
 	 */
 	void computePressureDensity_parallel() {
-
+#ifdef PARALLEL_CPU_VERSION
 #pragma omp parallel for
+#endif
+
 		for (tIndex i = 0; i < particleCount(); ++i) {
 			Vec r_ij = _particles[i].getPosition() - _particles[i].getPosition();  // Auto-influence
 			Real influence = _kernel.w(r_ij);
 			Real density = _m0 * influence;
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp critical
+#endif
 
+			{
 			//for (const tIndex& j : getNeighbors_parallel(i)) {
 			for (const tIndex& j : _particles[i].getNeighbors()) {
 
@@ -1233,13 +1325,12 @@ private:
 				influence = _kernel.w(r_ij);
 				density += _m0 * influence;
 			}
-#pragma omp critical
-			{
+			
 				_particles[i].setDensity(density);
-				Real pressure = std::max(_k * ((float)pow((density / _d0), _gamma) - 1.0f), 0.0f);
-				_particles[i].setPressure(pressure);
+				::Real pressure = std::max(_k * ((float)pow((density / _d0), _gamma) - 1.0f), 0.0f);
+				_particles[i].setPressure(std::max(_k * ((float)pow((density / _d0), _gamma) - 1.0f), 0.0f));
 				//std::cout << "particle=" << i << " density=" << density << " pressure="<<pressure<<std::endl;
-
+				
 			}
 		}
 	}
@@ -1255,15 +1346,19 @@ private:
 		//int thread_num = omp_get_thread_num();
 		//std::vector<tIndex>& my_leakedParticles = local_leakedParticles[thread_num];
 		Vec accel, fpressure, fvisco;
+#ifdef PARALLEL_CPU_VERSION
+#pragma omp parallel for
+#endif
 
-#pragma omp parallel for 
 		for (int i = 0; i < particleCount(); i++) {
 
 #ifdef PARTICLES_AS_BOUNDARIES
 			if (!isBoundary(i)) {
 #endif
 				//for (const tIndex& j : getNeighbors_parallel(i)) {
+#ifdef PARALLEL_CPU_VERSION
 #pragma omp critical
+#endif
 				{
 					Particle* particle = &(_particles[i]);
 					accel = Vec(0);
@@ -1319,7 +1414,7 @@ private:
 						}
 						if (!isAlreadyLeaked) {
 							leakedParticles.push_back(i);
-							std::cout << "A leak happened - Number of lost particle  : " << getLeakNumber() << std::endl;
+							std::cout << "A leak happened - Number of lost particle  : " << getLeaksNumber() << std::endl;
 
 						}
 
@@ -1338,7 +1433,7 @@ private:
 
 					if (!isAlreadyLeaked) {
 						my_leakedParticles.push_back(i);
-						std::cout << "A leak happened - Number of lost particle  : " << getLeakNumber() << std::endl;
+						std::cout << "A leak happened - Number of lost particle  : " << getLeaksNumber() << std::endl;
 
 					}
 				}
@@ -1359,14 +1454,14 @@ private:
 				particle->addToVelocity(_dt * accel);
 				velocity = particle->getVelocity();
 
-				//particle->addToPosition(_dt * velocity);
-				position = particle->getPosition();
+				particle->addToPosition(_dt * velocity);
+				//position = particle->getPosition();
 
-#ifdef ADAPTATIVE_TIME
-				//update max velocity (for _dt adapatation )
-				if (velocity.length() > _maxVel)
-					_maxVel = velocity.length();
-#endif
+				if (_isAdaptativeDT) {
+					//update max velocity (for _dt adapatation )
+					if (velocity.length() > _maxVel)
+						_maxVel = velocity.length();
+				}
 
 				/*
 								//resolve collision
@@ -1604,7 +1699,7 @@ private:
 				}
 				if (!isAlreadyLeaked) {
 					leakedParticles.push_back(i);
-					std::cout << "A leak happened - Number of lost particle  : " << getLeakNumber() << std::endl;
+					std::cout << "A leak happened - Number of lost particle  : " << getLeaksNumber() << std::endl;
 
 				}
 
@@ -1747,7 +1842,6 @@ private:
 		return false;
 
 	}
-	int getLeakNumber() { return leakedParticles.size(); }
 
 	void resolveCollisionBoundary(const tIndex & boundary, const tIndex & j) {
 
@@ -1895,7 +1989,7 @@ private:
 		}
 
 		for (std::vector<tIndex>::const_iterator it = need_res.begin(); it != need_res.end(); ++it) {
-			const Vec p0 = _particles[*it].getPosition();
+			const Vec p0 =_particles[*it].getPosition();
 
 			// Ajustement de la position de la particule pour éviter les dépassements des limites dans toutes les dimensions
 			_particles[*it].setPosition(Vec(
@@ -1905,11 +1999,11 @@ private:
 			));
 
 			// Mise à jour de la vitesse de la particule en fonction du nouveau déplacement
-			_particles[*it].setVelocity((_particles[*it].getPosition() - p0) / _dt);
+			_particles[*it].setVelocity(( _particles[*it].getPosition() - p0) / _dt);
 #endif
 
 		}
-		}
+	}
 
 	void updateColor()
 	{
@@ -1962,7 +2056,7 @@ private:
 	// simulation
 	Real _dt;                     // time step
 
-	int _resX, _resY, _resZ;             // background grid resolution
+	int _resX, _resY, _resZ, _fWidth, _fHeight ,_fDepth;             // background grid resolution
 	int MAX_NEIGHBORS = 4 * 4 * 9; //1 cells can approximately contain 4 by 4 particle-> Multiple by 9 for a block of neighbour
 
 	tIndex _particleBoundariesNumber;
@@ -1987,7 +2081,7 @@ private:
 	Real _gamma;                  // EOS power factor
 
 	//For _dt integration
-	Real _maxVel;
+	float _maxVel;
 	Real isFirstStep = true;
 
 
@@ -1998,6 +2092,8 @@ private:
 	Real _hVisco;					// h for viscofluid
 
 	Real _sigma;					// viscosity factor ( the high it is the more viscous the fluid would be)
+	std::vector< std::vector<Real> > _L;			//spring length value between two fluid particles
+
 	Real _beta;					// quadratic dependance compared with vvelocity. Usefull to avoid particle interpenetration by eliminating high intern speed. SHpuld be non nul
 	Real _L0;						// spring rest length
 	Real _k_spring;				//spring constant
@@ -2009,11 +2105,14 @@ private:
 	bool _SPHfluid;
 	bool _doubleDensity;
 
+	bool _isAdaptativeDT;
+
 	};
+	bool ctrlPressed;
 #ifndef THREE_D
 SphSolver gSolver(0.08, 0.5, 1e3, Vec(0, -9.8), 0.01, 7.0);
 #else
-SphSolver gSolver(0.08, 0.5, 10, Vec(0, -9.8, 0), 0.01, 7.0);
+SphSolver gSolver(0.08, 0.5, 1000, Vec(0, -9.8, 0), 0.01, 7.0);
 
 #endif
 
@@ -2032,6 +2131,7 @@ Real _kGUI;
 Real _kNearGUI;
 Real dtGUI;
 Real d0GUI;
+Real nuGUI;
 void printHelp()
 {
 	std::cout <<
@@ -2074,13 +2174,15 @@ void initImGUI()
 	_betaGUI = gSolver.getBeta();
 
 	_sigmaGUI = gSolver.getSigma();
-
+	nuGUI = gSolver.getNu();
 	_gammaSpringGUI = gSolver.getGammaSpring();
 	gApplyGravity = gSolver.isGravityApplied();
 	gApplyVisco = gSolver.isViscosityApplied();
 	gApplySprings = gSolver.isSpringsApplied();
 	gSPHfluid = gSolver.isSPHApplied();
 	gDoubleDensity = gSolver.isDoubleDensityApplied();
+	
+
 
 
 	// Initialisation d'ImGui
@@ -2099,7 +2201,9 @@ void resetSim()
 #ifndef THREE_D
 	gSolver.initScene(48, 32, 32, 16);
 #else
-	gSolver.initScene(24, 16, 4, 8, 4, 4);//	gSolver.initScene(24, 16, 8, 16, 8, 8);
+	//gSolver.initScene(12, 8, 2, 4, 2, 2);//	gSolver.initScene(24, 16, 8, 16, 8, 8);
+	 gSolver.initScene(24, 16, 16, 8, 4, 4);//	gSolver.initScene(24, 16, 8, 16, 8, 8);//
+	//gSolver.initScene(8, 4, 4, 8, 4, 4);//	gSolver.initScene(24, 16, 8, 16, 8, 8);
 
 #endif
 
@@ -2131,6 +2235,13 @@ void keyCallback(GLFWwindow * window, int key, int scancode, int action, int mod
 	else if (action == GLFW_PRESS && key == GLFW_KEY_R) {
 		resetSim();
 	}
+	if (action == GLFW_PRESS && (key == GLFW_KEY_LEFT_CONTROL || key == GLFW_KEY_RIGHT_CONTROL)) {
+		ctrlPressed = true;
+	}
+	else if (action == GLFW_RELEASE && (key == GLFW_KEY_LEFT_CONTROL || key == GLFW_KEY_RIGHT_CONTROL)) {
+		ctrlPressed = false;
+	}
+
 }
 
 // Called each time the mouse cursor moves
@@ -2138,7 +2249,6 @@ void cursorPosCallback(GLFWwindow * window, double xpos, double ypos)
 {
 	ImGuiIO& io = ImGui::GetIO();
 	if (io.WantCaptureMouse) {
-		// Ne pas traiter les mouvements de la souris pour la scène 3D si ImGui veut capturer la souris
 		return;
 	}
 	int width, height;
@@ -2157,21 +2267,44 @@ void cursorPosCallback(GLFWwindow * window, double xpos, double ypos)
 		g_cam->setPosition(g_baseTrans + g_meshScale * glm::vec3(0.0, 0.0, dy));
 	}
 }
+
+
+Vec screenToWorld(double xpos, double ypos, int screenWidth, int screenHeight) {
+	glm::mat4 projection = g_cam->computeProjectionMatrix();
+	glm::mat4 view = g_cam->computeViewMatrix() ;
+	glm::mat4 viewProjectionInverse = glm::inverse(projection * view);
+
+	double xNormalized = ((2.0 * xpos) / screenWidth) - 1;
+	double yNormalized = 1 - ((2.0 * ypos) / screenHeight); // Y inversé
+
+	glm::vec4 screenPos(xNormalized, yNormalized,1.0, 3.0); // Z=1 pour la profondeur
+	glm::vec4 worldPos = viewProjectionInverse * screenPos;
+	worldPos /= worldPos.w;
+	//std::cout << "Souris: (" << xpos << ", " << ypos << "), Normalisé: (" << xNormalized << ", " << yNormalized << "), Monde: (" << worldPos.x << ", " << worldPos.y << ", " << worldPos.z << ")" << std::endl;
+
+	return Vec(worldPos.x -3.3 , worldPos.y + 1.5, worldPos.z - 10);
+}
+
 void mouseButtonCallback(GLFWwindow * window, int button, int action, int mods)
 {
 	ImGuiIO& io = ImGui::GetIO();
 	if (io.WantCaptureMouse) {
-		// Ne pas traiter les mouvements de la souris pour la scène 3D si ImGui veut capturer la souris
+		// Let Imgui manage the mouse
 		return;
 	}
-	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-		if (!g_rotatingP) {
+
+	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS ) {
+		if (!g_rotatingP && (( !gAddParticleMode) || (gAddParticleMode && ctrlPressed))) {
 			g_rotatingP = true;
 			glfwGetCursorPos(window, &g_baseX, &g_baseY);
 			g_baseRot = g_cam->getRotation();
 		}
+		gLeftMouseButtonPressed = true;
+
+		
 	}
-	else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+	else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE){
+		gLeftMouseButtonPressed = false;
 		g_rotatingP = false;
 	}
 	else if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
@@ -2180,6 +2313,7 @@ void mouseButtonCallback(GLFWwindow * window, int button, int action, int mods)
 			glfwGetCursorPos(window, &g_baseX, &g_baseY);
 			g_baseTrans = g_cam->getPosition();
 		}
+		
 	}
 	else if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_RELEASE) {
 		g_panningP = false;
@@ -2237,7 +2371,7 @@ void initGLFW()
 
 	gWindow = glfwCreateWindow(
 		gWindowWidth, gWindowHeight,
-		"Basic SPH Simulator", nullptr, nullptr);
+		"Viscoelatic fluid simulator", nullptr, nullptr);
 	if (!gWindow) {
 		std::cerr << "ERROR: Failed to open window" << std::endl;
 		glfwTerminate();
@@ -2313,7 +2447,11 @@ void init()
 #ifndef THREE_D
 	gSolver.initScene(48, 32, 32, 16);
 #else
-	gSolver.initScene(24, 16, 4, 8, 4, 4);//	gSolver.initScene(24, 16, 8, 16, 8, 8);
+	//gSolver.initScene(6, 4, 2, 2, 2, 2);//	gSolver.initScene(24, 16, 8, 16, 8, 8);
+	//gSolver.initScene(12, 8, 2, 4, 2, 2);//	gSolver.initScene(24, 16, 8, 16, 8, 8);
+	gSolver.initScene(24, 16, 16, 8, 4, 4);//gSolver.initScene(24, 16, 8, 16, 8, 8);//
+	//gSolver.initScene(8, 4, 4, 8, 4, 4);//	gSolver.initScene(24, 16, 8, 16, 8, 8);
+
 
 
 #endif
@@ -2457,7 +2595,54 @@ void render()
 
 		glEnd();
 	}
+
+	else {
+		glEnable(GL_BLEND); // Active la transparence
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // Définit le mode de mélange pour la transparence
+
+		glBegin(GL_LINES);
+
+		// Définit la couleur avec transparence
+		glColor4f(0.3, 0.3, 0.3, 0.5); // Le dernier composant est l'alpha
+
+		// Dessine uniquement les bords de la grille
+		// Bords parallèles à l'axe X
+		int maxX = gSolver.resX(), maxY = gSolver.resY(), maxZ = gSolver.resZ();
+		glVertex3f(0.0, 0.0, 0.0);
+		glVertex3f(maxX, 0.0, 0.0);
+		glVertex3f(0.0, maxY, 0.0);
+		glVertex3f(maxX, maxY, 0.0);
+		glVertex3f(0.0, 0.0, maxZ);
+		glVertex3f(maxX, 0.0, maxZ);
+		glVertex3f(0.0, maxY, maxZ);
+		glVertex3f(maxX, maxY, maxZ);
+
+		// Bords parallèles à l'axe Y
+		glVertex3f(0.0, 0.0, 0.0);
+		glVertex3f(0.0, maxY, 0.0);
+		glVertex3f(maxX, 0.0, 0.0);
+		glVertex3f(maxX, maxY, 0.0);
+		glVertex3f(0.0, 0.0, maxZ);
+		glVertex3f(0.0, maxY, maxZ);
+		glVertex3f(maxX, 0.0, maxZ);
+		glVertex3f(maxX, maxY, maxZ);
+
+		// Bords parallèles à l'axe Z
+		glVertex3f(0.0, 0.0, 0.0);
+		glVertex3f(0.0, 0.0, maxZ);
+		glVertex3f(maxX, 0.0, 0.0);
+		glVertex3f(maxX, 0.0, maxZ);
+		glVertex3f(0.0, maxY, 0.0);
+		glVertex3f(0.0, maxY, maxZ);
+		glVertex3f(maxX, maxY, 0.0);
+		glVertex3f(maxX, maxY, maxZ);
+
+		glEnd();
+		glDisable(GL_BLEND);
+	}
+
 #endif
+	drawAxes(1.0f);
 
 	// render particles
 	glEnable(GL_POINT_SMOOTH);
@@ -2467,7 +2652,7 @@ void render()
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glEnableClientState(GL_COLOR_ARRAY);
 
-	glPointSize(0.25f * kViewScale);
+	glPointSize(1.0f * kViewScale);//glPointSize(0.25f * kViewScale);
 
 	glColorPointer(4, GL_FLOAT, 0, &gSolver.color(0));
 #ifndef THREE_D
@@ -2512,10 +2697,13 @@ void render()
 
 
 #ifdef IMGUI
-	// Ici, construisez votre interface ImGui
 	ImGui::Begin("Debug ImGui de Adama");
-	ImGui::Text("Particle count : %d  | dt : %f", gSolver.particleCount(), gSolver.getDt());
+	ImGui::Text("Particle count : %d | _d0 : %f | dt : %f", gSolver.particleCount(), gSolver.getD0(),gSolver.getDt());
+	ImGui::Text("Particle leaked : %d ", gSolver.getLeaksNumber());
+	
+
 	// Checkbox that appears in the window
+	ImGui::Checkbox("Add particle with mouse", &gAddParticleMode);
 	ImGui::Checkbox("saveFile", &gSaveFile);
 	ImGui::Checkbox("show grid", &gShowGrid);
 	ImGui::Checkbox("show Velocities", &gShowVel);
@@ -2523,7 +2711,8 @@ void render()
 	ImGui::Checkbox("Apply Viscosity", &gApplyVisco);
 	ImGui::Checkbox("Apply Springs", &gApplySprings);
 	ImGui::Checkbox("SPH fluid", &gSPHfluid);
-	ImGui::Checkbox("Double density", &gDoubleDensity);
+	ImGui::Checkbox("Double density", &gDoubleDensity); 
+	ImGui::Checkbox("Adaptative time (reset animation)", &gAdaptativeTime);
 #ifndef THREE_D
 	// Slider that appears in the window
 	//ImGui::SliderFloat("Particle size", &size, ??);
@@ -2562,20 +2751,28 @@ void render()
 #else
 	// Slider that appears in the window
 	//ImGui::SliderFloat("Particle size", &size, ??);
-	ImGui::SliderFloat("k ", &_kGUI, 0.0001f, 1.0f, "Valeur: %.3f", 0.0001f);
-	// ImGui::InputFloat(" ", &_kGUI, 0.1f, 1.0f, "%.3f");
+	if (!gDoubleDensity) {
+		ImGui::SliderFloat("k ", &_kGUI, 0.0001f, 100, "Valeur: %.3f", 0.0001f);
+		// ImGui::InputFloat(" ", &_kGUI, 0.1f, 1.0f, "%.3f");
 
-	ImGui::SliderFloat("k near", &_kNearGUI, 0.001f, 1.0f, "Valeur: %.3f", 0.001f);
-	//ImGui::InputFloat(" ", &_kNearGUI, 0.1f, 1.0f, "%.3f");
+		ImGui::SliderFloat("k near", &_kNearGUI, 0.001f, 200, "Valeur: %.3f", 0.001f);
+		//ImGui::InputFloat(" ", &_kNearGUI, 0.1f, 1.0f, "%.3f");
+	}else {
+		ImGui::SliderFloat("k ", &_kGUI, 0.0001f, 1, "Valeur: %.3f", 0.0001f);
+		// ImGui::InputFloat(" ", &_kGUI, 0.1f, 1.0f, "%.3f");
 
-	ImGui::SliderFloat("k spring", &_k_springGUI, .0f, 50.0f, "Valeur: %.3f", 0.01f);
+		ImGui::SliderFloat("k near", &_kNearGUI, 0.001f, 2, "Valeur: %.3f", 0.001f);
+		//ImGui::InputFloat(" ", &_kNearGUI, 0.1f, 1.0f, "%.3f");
+	}
+	
+	ImGui::SliderFloat("k spring", &_k_springGUI, .0f, 1.0f, "Valeur: %.3f", 0.01f);
 	//ImGui::InputFloat(" ", &_k_springGUI, 0.1f, 1.0f, "%.3f");
 
 	ImGui::SliderFloat("gamma spring", &_gammaSpringGUI, .0f, 0.2f, "Valeur: %.3f", 0.01f);
 	//ImGui::InputFloat(" ", &_gammaSpringGUI, 0.1f, 1.0f, "%.3f");
 
-	ImGui::SliderFloat("h", &_hViscoGUI, 0.5f, 20.f, "Valeur: %.3f", 0.1f);
-	//ImGui::InputFloat(" ", &_hViscoGUI);
+	ImGui::SliderFloat("h", &_hViscoGUI, 0.5f, 100.f, "Valeur: %.3f", 0.1f);
+	//ImGui::InputFloat(" ", &_hViscoGUI)
 
 	ImGui::SliderFloat("sigma (+viscosity)", &_sigmaGUI, 0.5f, 100.f, "Valeur: %.3f", 0.1f);
 	//ImGui::InputFloat(" ", &_sigmaGUI, 0.1f, 1.0f, "%.3f");
@@ -2586,7 +2783,7 @@ void render()
 	ImGui::SliderFloat("L0", &_L0GUI, 0.5f, 100.f, "Valeur: %.3f", 0.1f);
 	//ImGui::InputFloat(" ", &_L0GUI, 0.1f, 1.0f, "%.3f");
 
-	ImGui::SliderFloat("d0", &d0GUI, 0.f, 1000.f);
+	ImGui::SliderFloat("d0", &d0GUI, 0.f, 20.f);
 	//ImGui::InputFloat(" ", &d0GUI, 0.1f, 1.0f, "%.3f");
 
 	ImGui::SliderFloat("dt", &dtGUI, 0.0001f, 0.5f, "Valeur: %.3f", 0.0001f);
@@ -2595,6 +2792,8 @@ void render()
 	ImGui::SliderFloat("alpha", &_alphaGUI, 0.0001f, 10.0f, "Valeur: %.3f", 0.001f);
 	//ImGui::InputFloat(" ", &_alphaGUI, 0.1f, 1.0f, "%.3f");
 
+	ImGui::SliderFloat("nu", &nuGUI, 0.001f, 5.0f, "Valeur: %.3f", 0.001f);
+	//ImGui::InputFloat(" ", &_alphaGUI, 0.1f, 1.0f, "%.3f");
 
 
 #endif
@@ -2610,7 +2809,6 @@ void render()
 #endif
 
 	//draw axis
-	drawAxes(1.0f);
 
 
 	if (gSaveFile) {
@@ -2654,17 +2852,21 @@ void update(const float currentTime)
 		// solve 10 steps for better stability ( chaque step est un pas de temps )
 		for (int i = 0; i < n; ++i)
 #endif
-#ifdef IMGUI
-			gSolver.updateFactors(dtGUI, d0GUI, _kGUI, _kNearGUI, _k_springGUI,
-				_hViscoGUI, _L0GUI, _alphaGUI, _betaGUI, _sigmaGUI, _gammaSpringGUI);
+#ifdef IMGUI 
+		gSolver.updateFactors(dtGUI, d0GUI, _kGUI, _kNearGUI, _k_springGUI,
+				_hViscoGUI, _L0GUI, _alphaGUI, _betaGUI, _sigmaGUI, _gammaSpringGUI, nuGUI);
 		gSolver.applyGravity(gApplyGravity);
 		gSolver.applyViscosity(gApplyVisco);
 		gSolver.applySprings(gApplySprings);
-		gSolver.applySPH(gSPHfluid);
 		gSolver.applyDoubleDensity(gDoubleDensity);
+		gSolver.applySPH(gSPHfluid);
+		gSolver.applyAdaptativeTime(gAdaptativeTime);
+		
 #endif
+		
 
 		gSolver.update();
+
 
 #ifdef SAVEIMAGES
 
@@ -2684,6 +2886,17 @@ void update(const float currentTime)
 		fclose(out);
 #endif
 
+	}
+	if (gLeftMouseButtonPressed && gAddParticleMode && !ctrlPressed ) {
+		double xpos, ypos;
+		int width, height;
+		glfwGetWindowSize(gWindow, &width, &height);
+
+		glfwGetCursorPos(gWindow, &xpos, &ypos);
+
+		const float dy = g_cam->getPosition().z/ 2;
+		Vec clickPos = screenToWorld(xpos* dy, ypos* dy, width, height);
+		gSolver.addParticles(clickPos);
 	}
 }
 
