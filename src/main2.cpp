@@ -103,6 +103,7 @@ bool gDoubleDensity = false;
 bool gAdaptativeTime = true;
 bool gAddParticleMode = false;
 bool gLeftMouseButtonPressed = false;
+bool gTemplateblock = true;
 int gSavedCnt = 0;
 
 const int kViewScale = 30;
@@ -349,6 +350,7 @@ public:
 		_applySprings = false;
 		_SPHfluid = false;
 		_isAdaptativeDT = true;
+		_isTemplateBlockParticles = true;
 
 		/*_dt = 0.07f;
 		_h = .5f;
@@ -484,30 +486,34 @@ public:
 		_back = 0.25f - boundaryOffset; // Nouvelle limite pour la face avant
 		_front = static_cast<Real>(res_z) - 0.25f + boundaryOffset; // Nouvelle limite pour la face arrière
 
-		float Offset = 0.0f;//0.f;//
-		float particleSpace =.5f;
-		int bringingTogetherFactor = 1; // make the particle more or less close together without changing their numbers. Different from 0
-		//TODO : decommenter si je veux mon set de particules 
-		for (float k = 0.; k < f_depth ; k += 2 * particleSpace ) {
-			for (float j = 0; j < f_height; j += 2 * particleSpace) {
-				for (float i = 0; i < f_width; i += 2 * particleSpace) {
-					// Pour chaque position (i, j), créer plusieurs particules à différentes hauteurs (k)
-					for (float zOffset = 0.25; zOffset <= 0.75; zOffset +=  particleSpace) {
+		if (_isTemplateBlockParticles) {
 
-						_particles.push_back(Particle(Vec(i + 0.25f , j + 0.25f , k + zOffset)));
-						_particles.push_back(Particle(Vec(i + 0.75f , j + 0.25f , k + zOffset)));
-						_particles.push_back(Particle(Vec(i + 0.25f , j + 0.75f , k + zOffset)));
-						_particles.push_back(Particle(Vec(i + 0.75f , j + 0.75f , k + zOffset)));
+			float Offset = 0.0f;//0.f;//
+			float particleSpace = .5f;
+			int bringingTogetherFactor = 1; // make the particle more or less close together without changing their numbers. Different from 0
+			//TODO : decommenter si je veux mon set de particules 
+			for (float k = 0.; k < f_depth; k += 2 * particleSpace) {
+				for (float j = 0; j < f_height; j += 2 * particleSpace) {
+					for (float i = 0; i < f_width; i += 2 * particleSpace) {
+						// Pour chaque position (i, j), créer plusieurs particules à différentes hauteurs (k)
+						for (float zOffset = 0.25; zOffset <= 0.75; zOffset += particleSpace) {
 
+							_particles.push_back(Particle(Vec(i + 0.25f, j + 0.25f, k + zOffset)));
+							_particles.push_back(Particle(Vec(i + 0.75f, j + 0.25f, k + zOffset)));
+							_particles.push_back(Particle(Vec(i + 0.25f, j + 0.75f, k + zOffset)));
+							_particles.push_back(Particle(Vec(i + 0.75f, j + 0.75f, k + zOffset)));
+
+						}
 					}
 				}
 			}
-		}
+		}else{
 
-		/*_particles.push_back(Particle(Vec( 0.25f,  0.25f,  0.25f)));
+		_particles.push_back(Particle(Vec( 0.25f,  0.25f,  0.25f)));
 		_particles.push_back(Particle(Vec( 0.75f,  0.25f, 0.25f)));
 		_particles.push_back(Particle(Vec( 0.25f,  0.75f, 0.25f)));
-		_particles.push_back(Particle(Vec( 0.75f,  0.75f, 0.25f)));*/
+		_particles.push_back(Particle(Vec( 0.75f,  0.75f, 0.25f)));
+		}
 
 		_pos = std::vector<Vec>(_particles.size());
 		_col = std::vector<float>(_particles.size() * 4, 1.0); // RGBA
@@ -659,6 +665,14 @@ public:
 		_isAdaptativeDT = q;
 
 	}
+	bool isTemplateModeParticle() { return _isTemplateBlockParticles; }
+	void applyTemplateBlock(bool q)
+	{
+		_isTemplateBlockParticles = q;
+		initScene(resX(), resY(), resZ(), width(), height(), depth());
+
+	}
+	
 	void addParticles(const Vec& pos){
 		Vec newPos = Vec(
 			clamp(pos.x, _l, _r),
@@ -1748,6 +1762,7 @@ private:
 	bool _doubleDensity;
 
 	bool _isAdaptativeDT;
+	bool _isTemplateBlockParticles;
 
 	};
 	bool ctrlPressed;
@@ -2345,6 +2360,7 @@ void render()
 	
 
 	// Checkbox that appears in the window
+	ImGui::Checkbox("Template block particles (reset the simulation)", &gTemplateblock);
 	ImGui::Checkbox("Add particle with mouse", &gAddParticleMode);
 	ImGui::Checkbox("saveFile", &gSaveFile);
 	ImGui::Checkbox("show grid", &gShowGrid);
@@ -2354,7 +2370,8 @@ void render()
 	ImGui::Checkbox("Apply Springs", &gApplySprings);
 	ImGui::Checkbox("SPH fluid", &gSPHfluid);
 	ImGui::Checkbox("Double density", &gDoubleDensity); 
-	ImGui::Checkbox("Adaptative time (reset animation)", &gAdaptativeTime);
+	ImGui::Checkbox("Adaptative time (reset  the simulation)", &gAdaptativeTime);
+
 #ifndef THREE_D
 	// Slider that appears in the window
 	//ImGui::SliderFloat("Particle size", &size, ??);
@@ -2477,6 +2494,18 @@ void render()
 // Update any accessible variable based on the current time
 void update(const float currentTime)
 {
+#ifdef IMGUI 
+	gSolver.updateFactors(dtGUI, d0GUI, _kGUI, _kNearGUI, _k_springGUI,
+		_hViscoGUI, _L0GUI, _alphaGUI, _betaGUI, _sigmaGUI, _gammaSpringGUI, nuGUI);
+	gSolver.applyGravity(gApplyGravity);
+	gSolver.applyViscosity(gApplyVisco);
+	gSolver.applySprings(gApplySprings);
+	gSolver.applyDoubleDensity(gDoubleDensity);
+	gSolver.applySPH(gSPHfluid);
+	gSolver.applyAdaptativeTime(gAdaptativeTime);
+	gSolver.applyTemplateBlock(gTemplateblock);
+
+#endif
 	if (!gAppTimerStoppedP) {
 		// NOTE: When you want to use application's dt ...
 		/*
@@ -2494,17 +2523,7 @@ void update(const float currentTime)
 		// solve 10 steps for better stability ( chaque step est un pas de temps )
 		for (int i = 0; i < n; ++i)
 #endif
-#ifdef IMGUI 
-		gSolver.updateFactors(dtGUI, d0GUI, _kGUI, _kNearGUI, _k_springGUI,
-				_hViscoGUI, _L0GUI, _alphaGUI, _betaGUI, _sigmaGUI, _gammaSpringGUI, nuGUI);
-		gSolver.applyGravity(gApplyGravity);
-		gSolver.applyViscosity(gApplyVisco);
-		gSolver.applySprings(gApplySprings);
-		gSolver.applyDoubleDensity(gDoubleDensity);
-		gSolver.applySPH(gSPHfluid);
-		gSolver.applyAdaptativeTime(gAdaptativeTime);
-		
-#endif
+
 		
 
 		gSolver.update();
