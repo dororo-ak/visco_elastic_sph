@@ -297,7 +297,7 @@ public:
 	explicit SphSolver(
 		const Real nu = 0.1, const Real h = 0.5f, const Real density = 10,
 		const Vec g = Vec(0, -9.8), const Real eta = 0.001f, const Real gamma = 7.0,
-		const Real sigma = 10.3f, const Real beta = 1.1f, const Real L0 = 2.f, const Real k_spring = 0.0001f, const Real alpha = 0.8f, const Real gammaSpring = 0.004f) :
+		const Real sigma = 10.3f, const Real beta = 1.1f, const Real L0 = 2.f, const Real k_spring = 0.0001f, const Real alpha = 0.008f, const Real gammaSpring = 0.004f) :
 		//gammaSpring between 0 et 0.2
 		_kernel(h), _nu(nu), _h(h), _d0(density),
 		_g(g), _eta(eta), _gamma(gamma),
@@ -486,7 +486,7 @@ public:
 		_back = 0.25f - boundaryOffset; // Nouvelle limite pour la face avant
 		_front = static_cast<Real>(res_z) - 0.25f + boundaryOffset; // Nouvelle limite pour la face arrière
 
-		if (_isTemplateBlockParticles) {
+		if (!_isTemplateBlockParticles) {
 
 			float Offset = 0.0f;//0.f;//
 			float particleSpace = .5f;
@@ -635,49 +635,53 @@ public:
 	void applySPH(bool q)
 	{
 		_SPHfluid = q;
-		if(q  && !_doubleDensity) {
-			_kNear = 40.0f;
-			_k = 20.0f;
-		}
+
 	}
 	bool isSPHApplied() { return _SPHfluid; }
 	bool isDoubleDensityApplied() { return _doubleDensity; }
 	void applyDoubleDensity(bool q)
 	{
 		_doubleDensity = q;
-		if(q )
-		{
-			_kNear = 0.40f;
-			_k = 0.10f;
-		}
+	
 	}
 	bool isAdaptativeTime() { return _isAdaptativeDT; }
 	void applyAdaptativeTime(bool q)
 	{
 		if(q == true){
-			if(_isAdaptativeDT == false)
-			initScene(resX(), resY(), resZ(), width(), height(), depth());
+			if(_isAdaptativeDT == false){
+				_isAdaptativeDT = true;
+				initScene(resX(), resY(), resZ(), width(), height(), depth());}
 		}else{
-			if(_isAdaptativeDT == true)
-				initScene(resX(), resY(), resZ(), width(), height(), depth());
+			if(_isAdaptativeDT == true){
+				_isAdaptativeDT = false;
+				initScene(resX(), resY(), resZ(), width(), height(), depth());}
 
 		}
-		_isAdaptativeDT = q;
 
 	}
 	bool isTemplateModeParticle() { return _isTemplateBlockParticles; }
 	void applyTemplateBlock(bool q)
 	{
-		_isTemplateBlockParticles = q;
-		initScene(resX(), resY(), resZ(), width(), height(), depth());
+		
+		if (q == true) {
+			if (_isTemplateBlockParticles == false){
+				_isTemplateBlockParticles = true;
+				initScene(resX(), resY(), resZ(), width(), height(), depth());}
+		}
+		else {
+			if (_isTemplateBlockParticles == true){
+				_isTemplateBlockParticles = false;
+				initScene(resX(), resY(), resZ(), width(), height(), depth());}
+
+		}
 
 	}
 	
 	void addParticles(const Vec& pos){
 		Vec newPos = Vec(
-			clamp(pos.x, _l, _r),
-			clamp(pos.y, _b, _t),
-			clamp(pos.z, _back, _front));
+			clamp(pos.x+0.25f, _l + 0.25f, _r - 0.25f),
+			clamp(pos.y + 0.25f, _b + 0.25f, _t - 0.25f),
+			clamp(pos.z + 0.25f, _back + 0.25f, _front - 0.25f));
 		for (Particle& particule : _particles) {
 			particule.addtoLlist(0);
 		}
@@ -709,7 +713,6 @@ public:
 		_sigma = sigma;
 		_gammaSpring = gammaSpring;
 		_nu = nu;
-		std::cout << '.' << std::flush;
 	}
 	//
 	tIndex particleCount() const { return _particles.size() - getLeaksNumber(); }
@@ -891,11 +894,12 @@ private:
 				if (i < j)
 				{
 					Vec r_ij = _particles[i].getPosition() - _particles[j].getPosition();
-					Real r_ij_length = r_ij.length();
+					Real r_ij_length = r_ij.normalize().length();// r_ij.length();
 					Real q = r_ij_length / _h;
 					if (q < 1) {
 						if (_particles[i].getL(j) == 0.f)
 							_particles[i].setL(j, _h);
+
 						d = _gammaSpring * _particles[i].getL(j);
 
 						if (r_ij_length > _L0 + d)
@@ -948,16 +952,18 @@ private:
 #endif
 
 			{
+				Vec r_ij; 
 
-				Vec r_ij = _particles[i].getPosition() - _particles[i].getPosition();  // Auto-influence
-				//Vec r_ij; 
-				Real q = r_ij.length() / _h;
 				Real density = 0;
 				Real densityNear = 0;
+				Real q;
+				/*Vec r_ij = _particles[i].getPosition() - _particles[i].getPosition();  // Auto-influence
+								Real q = r_ij.length() / _h;
+				
 				if (q < 1) {
 					density += (1 - q) * (1 - q);
 					densityNear += (1 - q) * (1 - q) * (1 - q);
-				}
+				}*/
 				//for (const tIndex& j : getNeighbors_parallel(i)) {
 				std::vector<tIndex> neigh = _particles[i].getNeighbors();
 				//std::cout << "particle[" << i << "] neighNumber=" << neigh.size() << std::endl;
@@ -973,12 +979,12 @@ private:
 
 				_particles[i].setDensity(density);
 				_particles[i].setDNear(densityNear);
-				//std::cout << "Density=" << density << "  DensityNear=" << densityNear << std::endl;
 
 				Real P = _k * (density - _d0);// std::max(_k * (density - _d0), 0.0f);
 				Real PNear = _kNear * densityNear;//std::max(_kNear * densityNear, 0.0f);
 				_particles[i].setPressure(P);
 				_particles[i].setPNear(PNear);
+				//std::cout << "k=" << _k << "  knear=" << _kNear << std::endl;
 
 				Vec dx(0.f, 0.f);
 				for (const tIndex& j : _particles[i].getNeighbors()) {
@@ -987,8 +993,7 @@ private:
 					//std::cout << "q=" << q << std::endl;
 					if (q < 1) {
 						Vec D = _dt * _dt * ((P * (1 - q)) + (PNear * (1 - q) * (1 - q))) * r_ij.normalize();
-						if (!isBoundary(j))
-							_particles[j].addToPosition(D / 2);
+						_particles[j].addToPosition(D / 2);
 						dx -= D / 2;
 					}
 				}
@@ -1769,7 +1774,7 @@ private:
 #ifndef THREE_D
 SphSolver gSolver(0.08, 0.5, 1e3, Vec(0, -9.8), 0.01, 7.0);
 #else
-SphSolver gSolver(0.08, 0.5, 1000, Vec(0, -9.8, 0), 0.01, 7.0);
+SphSolver gSolver(0.08, 0.5, 1000, Vec(0, -0.98, 0), 0.01, 7.0);
 
 #endif
 
@@ -1789,6 +1794,7 @@ Real _kNearGUI;
 Real dtGUI;
 Real d0GUI;
 Real nuGUI;
+Real particleSize = 0.333; 
 void printHelp()
 {
 	std::cout <<
@@ -1838,7 +1844,7 @@ void initImGUI()
 	gApplySprings = gSolver.isSpringsApplied();
 	gSPHfluid = gSolver.isSPHApplied();
 	gDoubleDensity = gSolver.isDoubleDensityApplied();
-	
+	gTemplateblock = gSolver.isTemplateModeParticle();
 
 
 
@@ -2309,7 +2315,7 @@ void render()
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glEnableClientState(GL_COLOR_ARRAY);
 
-	glPointSize(1.0f * kViewScale);//glPointSize(0.25f * kViewScale);
+	glPointSize(particleSize* kViewScale);//glPointSize(0.25f * kViewScale);
 
 	glColorPointer(4, GL_FLOAT, 0, &gSolver.color(0));
 #ifndef THREE_D
@@ -2354,13 +2360,13 @@ void render()
 
 
 #ifdef IMGUI
-	ImGui::Begin("Debug ImGui de Adama");
+	ImGui::Begin("Debug ImGui of Adama");
 	ImGui::Text("Particle count : %d | _d0 : %f | dt : %f", gSolver.particleCount(), gSolver.getD0(),gSolver.getDt());
 	ImGui::Text("Particle leaked : %d ", gSolver.getLeaksNumber());
 	
 
 	// Checkbox that appears in the window
-	ImGui::Checkbox("Template block particles (reset the simulation)", &gTemplateblock);
+	ImGui::Checkbox("Not Template block particles (reset the simulation)", &gTemplateblock);
 	ImGui::Checkbox("Add particle with mouse", &gAddParticleMode);
 	ImGui::Checkbox("saveFile", &gSaveFile);
 	ImGui::Checkbox("show grid", &gShowGrid);
@@ -2411,16 +2417,16 @@ void render()
 	// Slider that appears in the window
 	//ImGui::SliderFloat("Particle size", &size, ??);
 	if (!gDoubleDensity) {
-		ImGui::SliderFloat("k ", &_kGUI, 0.0001f, 100, "Valeur: %.3f", 0.0001f);
+		ImGui::SliderFloat("k ", &_kGUI, 0.000f, 100, "Valeur: %.3f", 0.0001f);
 		// ImGui::InputFloat(" ", &_kGUI, 0.1f, 1.0f, "%.3f");
 
-		ImGui::SliderFloat("k near", &_kNearGUI, 0.001f, 200, "Valeur: %.3f", 0.001f);
+		ImGui::SliderFloat("k near", &_kNearGUI, 0.00f, 200, "Valeur: %.3f", 0.001f);
 		//ImGui::InputFloat(" ", &_kNearGUI, 0.1f, 1.0f, "%.3f");
 	}else {
-		ImGui::SliderFloat("k ", &_kGUI, 0.0001f, 1, "Valeur: %.3f", 0.0001f);
+		ImGui::SliderFloat("k ", &_kGUI, 0.000f, 1, "Valeur: %.3f", 0.0001f);
 		// ImGui::InputFloat(" ", &_kGUI, 0.1f, 1.0f, "%.3f");
 
-		ImGui::SliderFloat("k near", &_kNearGUI, 0.001f, 2, "Valeur: %.3f", 0.001f);
+		ImGui::SliderFloat("k near", &_kNearGUI, 0.00f, 2, "Valeur: %.3f", 0.001f);
 		//ImGui::InputFloat(" ", &_kNearGUI, 0.1f, 1.0f, "%.3f");
 	}
 	
@@ -2430,17 +2436,21 @@ void render()
 	ImGui::SliderFloat("gamma spring", &_gammaSpringGUI, .0f, 0.2f, "Valeur: %.3f", 0.01f);
 	//ImGui::InputFloat(" ", &_gammaSpringGUI, 0.1f, 1.0f, "%.3f");
 
+	ImGui::SliderFloat("alpha (spring plasticity)", &_alphaGUI, 0.0001f, 0.5f, "Valeur: %.3f", 0.001f);
+	//ImGui::InputFloat(" ", &_alphaGUI, 0.1f, 1.0f, "%.3f");
+	ImGui::SliderFloat("L0 (spring)", &_L0GUI, 0.5f, 100.f, "Valeur: %.3f", 0.1f);
+	//ImGui::InputFloat(" ", &_L0GUI, 0.1f, 1.0f, "%.3f");
+
 	ImGui::SliderFloat("h", &_hViscoGUI, 0.5f, 100.f, "Valeur: %.3f", 0.1f);
 	//ImGui::InputFloat(" ", &_hViscoGUI)
 
-	ImGui::SliderFloat("sigma (+viscosity)", &_sigmaGUI, 0.5f, 100.f, "Valeur: %.3f", 0.1f);
+	ImGui::SliderFloat("sigma (+viscosity)", &_sigmaGUI, 0.5f, 200.f, "Valeur: %.3f", 0.1f);
 	//ImGui::InputFloat(" ", &_sigmaGUI, 0.1f, 1.0f, "%.3f");
 
-	ImGui::SliderFloat("beta(- viscosity)", &_betaGUI, 0.0005f, 10.0f, "Valeur: %.3f", 0.001f);
+	ImGui::SliderFloat("beta(- viscosity)", &_betaGUI, 0.0005f, 200.0f, "Valeur: %.3f", 0.001f);
 	//ImGui::InputFloat(" ", &_betaGUI, 0.1f, 1.0f, "%.3f");
 
-	ImGui::SliderFloat("L0", &_L0GUI, 0.5f, 100.f, "Valeur: %.3f", 0.1f);
-	//ImGui::InputFloat(" ", &_L0GUI, 0.1f, 1.0f, "%.3f");
+	
 
 	ImGui::SliderFloat("d0", &d0GUI, 0.f, 20.f);
 	//ImGui::InputFloat(" ", &d0GUI, 0.1f, 1.0f, "%.3f");
@@ -2448,13 +2458,12 @@ void render()
 	ImGui::SliderFloat("dt", &dtGUI, 0.0001f, 0.5f, "Valeur: %.3f", 0.0001f);
 	//ImGui::InputFloat(" ", &dtGUI, 0.1f, 1.0f, "%.3f");
 
-	ImGui::SliderFloat("alpha", &_alphaGUI, 0.0001f, 10.0f, "Valeur: %.3f", 0.001f);
+
+	ImGui::SliderFloat("nu (SPH)", &nuGUI, 0.001f, 5.0f, "Valeur: %.3f", 0.001f);
 	//ImGui::InputFloat(" ", &_alphaGUI, 0.1f, 1.0f, "%.3f");
 
-	ImGui::SliderFloat("nu", &nuGUI, 0.001f, 5.0f, "Valeur: %.3f", 0.001f);
+	ImGui::SliderFloat("particle size view", &particleSize, 0.1f, 1.5f, "Valeur: %.3f", 0.001f);
 	//ImGui::InputFloat(" ", &_alphaGUI, 0.1f, 1.0f, "%.3f");
-
-
 #endif
 
 
@@ -2502,8 +2511,8 @@ void update(const float currentTime)
 	gSolver.applySprings(gApplySprings);
 	gSolver.applyDoubleDensity(gDoubleDensity);
 	gSolver.applySPH(gSPHfluid);
-	gSolver.applyAdaptativeTime(gAdaptativeTime);
 	gSolver.applyTemplateBlock(gTemplateblock);
+	gSolver.applyAdaptativeTime(gAdaptativeTime);
 
 #endif
 	if (!gAppTimerStoppedP) {

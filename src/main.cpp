@@ -27,7 +27,7 @@
 
 //#define  PARTICLES_AS_BOUNDARIES //work only if fast version defined
 //#define WITHOUT_GRAVITY
-//#define VISCO_FLUID
+#define VISCO_FLUID
 #define IMGUI
 
 #include "imgui.h"
@@ -59,7 +59,6 @@
 
 
 #include "Vector.hpp"
-typedef Vec2f vec;
 // window parameters
 GLFWwindow *gWindow = nullptr;
 GLFWwindow* imgui_window = nullptr;
@@ -124,9 +123,9 @@ public:
     return 0;
   }
 
-  Real w(const Vec2f &rij) const { return f(rij.length()); }
-  Vec2f grad_w(const Vec2f &rij) const { return grad_w(rij, rij.length()); }
-  Vec2f grad_w(const Vec2f &rij, const Real len) const
+  Real w(const Vec &rij) const { return f(rij.length()); }
+  Vec grad_w(const Vec &rij) const { return grad_w(rij, rij.length()); }
+  Vec grad_w(const Vec &rij, const Real len) const
   {
     return derivative_f(len)*rij/len;
   }
@@ -140,10 +139,10 @@ class Particle {
 private:
 	bool _isBoundary;
 	bool isLeak;
-	Vec2f _position, _velocity;
+	Vec _position, _velocity;
 	Real _pressure, _density;
 	//for visco fluid
-	Vec2f _posPrevious;
+	Vec _posPrevious;
 	Real _pNear;
 	Real _dNear;
 	std::vector<tIndex> neighbors;
@@ -152,11 +151,11 @@ private:
 	
 
 public:
-	Particle(Vec2f position, bool boundary) : _position(position), _isBoundary(boundary) {}
-	Particle(Vec2f position) : _position(position) {}
+	Particle(Vec position, bool boundary) : _position(position), _isBoundary(boundary) {}
+	Particle(Vec position) : _position(position) {}
 
-	Vec2f getPosition() const { return _position; }
-	void setPosition(const Vec2f& position) { _position = position; }
+	Vec getPosition() const { return _position; }
+	void setPosition(const Vec& position) { _position = position; }
 
 	bool isBoundary() const { return _isBoundary; }
 	void setIsBoundary(bool boundary) { _isBoundary = boundary; }
@@ -164,8 +163,8 @@ public:
 	bool getIsLeak() const { return isLeak; }
 	void setIsLeak(bool leak) { isLeak = leak; }
 
-	Vec2f getVelocity() const { return _velocity; }
-	void setVelocity(const Vec2f& velocity) { _velocity = velocity; }
+	Vec getVelocity() const { return _velocity; }
+	void setVelocity(const Vec& velocity) { _velocity = velocity; }
 
 	Real getPressure() const { return _pressure; }
 	void setPressure(const Real pressure) { _pressure = pressure; }
@@ -173,8 +172,8 @@ public:
 	Real getDensity() const { return _density; }
 	void setDensity(const Real density) { _density = density; }
 
-	Vec2f getPositionPrevious() const { return _posPrevious; }
-	void setPositionPrevious(const Vec2f& posPrevious) { _posPrevious = posPrevious; }
+	Vec getPositionPrevious() const { return _posPrevious; }
+	void setPositionPrevious(const Vec& posPrevious) { _posPrevious = posPrevious; }
 
 	Real getPNear() const { return _pNear; }
 	void setPNear(const Real pNear) { _pNear = pNear; }
@@ -196,7 +195,7 @@ class SphSolver {
 public:
   explicit SphSolver(
     const Real nu=0.01, const Real h=0.5f, const Real density=1e3,
-    const Vec2f g=Vec2f(0, -9.8), const Real eta=0.01f, const Real gamma=7.0,
+    const Vec g=Vec(0, -9.8), const Real eta=0.01f, const Real gamma=7.0,
     const Real sigma = 1.3f, const Real beta = 1.1f, const Real L0 = 2.f, const Real k_spring = 0.00001f, const Real alpha = 0.3f, const Real gammaSpring = 0.2f) :
 	//gammaSpring between 0 et 0.2
     _kernel(h), _nu(nu),_h(h), _d0(density),
@@ -283,10 +282,10 @@ public:
     // sample a fluid mass
     for(int j=0; j<f_height; ++j) {
       for(int i=0; i<f_width; ++i) {
-        _pos.push_back(Vec2f(i+0.25f+ NUM_BOUNDARY_LAYER *_h, j+0.25f+ NUM_BOUNDARY_LAYER *_h));
-        _pos.push_back(Vec2f(i+0.75f+ NUM_BOUNDARY_LAYER *_h, j+0.25f+ NUM_BOUNDARY_LAYER *_h));
-        _pos.push_back(Vec2f(i+0.25f+ NUM_BOUNDARY_LAYER *_h, j+0.75f+ NUM_BOUNDARY_LAYER *_h));
-        _pos.push_back(Vec2f(i+0.75f+ NUM_BOUNDARY_LAYER *_h, j+0.75f+ NUM_BOUNDARY_LAYER *_h));
+        _pos.push_back(Vec(i+0.25f+ NUM_BOUNDARY_LAYER *_h, j+0.25f+ NUM_BOUNDARY_LAYER *_h));
+        _pos.push_back(Vec(i+0.75f+ NUM_BOUNDARY_LAYER *_h, j+0.25f+ NUM_BOUNDARY_LAYER *_h));
+        _pos.push_back(Vec(i+0.25f+ NUM_BOUNDARY_LAYER *_h, j+0.75f+ NUM_BOUNDARY_LAYER *_h));
+        _pos.push_back(Vec(i+0.75f+ NUM_BOUNDARY_LAYER *_h, j+0.75f+ NUM_BOUNDARY_LAYER *_h));
       }
     }
 	Real p = 0.5f/2.f;
@@ -300,9 +299,9 @@ public:
 
 
 			for (int j = 0; j < NUM_BOUNDARY_LAYER; j++) {
-				_pos.push_back(Vec2f(i + (p), _b + (0.5f * j)));
+				_pos.push_back(Vec(i + (p), _b + (0.5f * j)));
 				_particleBoundariesNumber++;
-				_pos.push_back(Vec2f(i + (3 * p), _b + (0.5f * j)));
+				_pos.push_back(Vec(i + (3 * p), _b + (0.5f * j)));
 				_particleBoundariesNumber++;
 			}
 	}
@@ -311,9 +310,9 @@ public:
         if(i<_r-1){
 
 			for (int j = 0; j < NUM_BOUNDARY_LAYER; j++) {
-				_pos.push_back(Vec2f(i + (p), (_t - (0.5f * j))));
+				_pos.push_back(Vec(i + (p), (_t - (0.5f * j))));
 				_particleBoundariesNumber++;
-				_pos.push_back(Vec2f(i + (3 * p), (_t- (0.5f * j))));
+				_pos.push_back(Vec(i + (3 * p), (_t- (0.5f * j))));
 				_particleBoundariesNumber++;
 			}
 
@@ -325,9 +324,9 @@ public:
         if (i < _t) {
 
 			for (int j = 0; j < NUM_BOUNDARY_LAYER; j++) {
-				_pos.push_back(Vec2f(_l + (0.5f * j), i + (p)));
+				_pos.push_back(Vec(_l + (0.5f * j), i + (p)));
 				_particleBoundariesNumber++;
-				_pos.push_back(Vec2f(_l+ (0.5f * j), i + (3 * p)));
+				_pos.push_back(Vec(_l+ (0.5f * j), i + (3 * p)));
 				_particleBoundariesNumber++;
 			}
 
@@ -337,9 +336,9 @@ public:
         if (i < _t) {
 
 			for (int j = 0; j < NUM_BOUNDARY_LAYER; j++) {
-				_pos.push_back(Vec2f(_r - (0.5f * j), i + (p)));
+				_pos.push_back(Vec(_r - (0.5f * j), i + (p)));
 				_particleBoundariesNumber++;
-				_pos.push_back(Vec2f(_r - (0.5f * j), i + (3 * p)));
+				_pos.push_back(Vec(_r - (0.5f * j), i + (3 * p)));
 				_particleBoundariesNumber++;
 			}
 
@@ -349,8 +348,8 @@ public:
 #endif
 
     // make sure for the other particle quantities
-    _vel = std::vector<Vec2f>(_pos.size(), Vec2f(0, 0));
-    _acc = std::vector<Vec2f>(_pos.size(), Vec2f(0, 0));
+    _vel = std::vector<Vec>(_pos.size(), Vec(0, 0));
+    _acc = std::vector<Vec>(_pos.size(), Vec(0, 0));
     _p   = std::vector<Real>(_pos.size(), 0);
     _d   = std::vector<Real>(_pos.size(), 0);
     _col = std::vector<float>(_pos.size()*4, 1.0); // RGBA
@@ -377,7 +376,7 @@ public:
 	  buildCellsNeighborhoud();
 	  computeDensity();
 	  computePressure();
-	  _acc = std::vector<Vec2f>(_pos.size(), Vec2f(0, 0));
+	  _acc = std::vector<Vec>(_pos.size(), Vec(0, 0));
 	  applyBodyForce();
 	  applyPressureForce();
 	  applyViscousForce();
@@ -523,7 +522,7 @@ public:
   }
   //
   tIndex particleCount() const { return _pos.size(); }
-  const Vec2f& position(const tIndex i) const { return _pos[i]; }
+  const Vec& position(const tIndex i) const { return _pos[i]; }
   const float& color(const tIndex i) const { return _col[i]; }
   const float& vline(const tIndex i) const { return _vln[i]; }
 
@@ -571,14 +570,14 @@ private:
 		for (const tIndex& j : _neighborsOf[i]) {
 			if(i <j)
 			{
-				Vec2f r_ij = _pos[i] - _pos[j];
+				Vec r_ij = _pos[i] - _pos[j];
 				Real q = r_ij.length() / _hVisco;
 				if(q<1)
 				{
 					Real u = (_vel[i] - _vel[j]).dotProduct(r_ij);
 					if(u>0)
 					{
-						Vec2f I = _dt * (1 - q) * ((_sigma * u) + (_beta * u * u) )* r_ij.normalize();
+						Vec I = _dt * (1 - q) * ((_sigma * u) + (_beta * u * u) )* r_ij.normalize();
 						if (!isBoundary(i)) 
 							_vel[i] -= I / 2.f;
 						if (!isBoundary(j)) 
@@ -644,7 +643,7 @@ private:
 			{
 				if (i < j)
 				{
-					Vec2f r_ij = _pos[i] - _pos[j];
+					Vec r_ij = _pos[i] - _pos[j];
 					Real r_ij_length = r_ij.length();
 					Real q = r_ij_length / _hVisco;
 					if (q < 1) {
@@ -679,8 +678,8 @@ private:
 			for (int j = 0; j < particleCount(); ++j)
 			{
 				if (i < j) {
-					Vec2f r_ij = _pos[i] - _pos[j];
-					Vec2f D = _dt * _dt * _k_spring * (1 - (_L[i][j] / _hVisco)) * (_L[i][j] - r_ij.length()) * r_ij.normalize();
+					Vec r_ij = _pos[i] - _pos[j];
+					Vec D = _dt * _dt * _k_spring * (1 - (_L[i][j] / _hVisco)) * (_L[i][j] - r_ij.length()) * r_ij.normalize();
 					_pos[i] -= D / 2;
 					_pos[j] += D / 2;
 				}
@@ -694,8 +693,8 @@ private:
 #pragma omp parallel for
 #endif
 		for (tIndex i = 0; i < particleCount(); ++i) {
-			Vec2f r_ij = _pos[i] - _pos[i];  // Auto-influence
-			//Vec2f r_ij; 
+			Vec r_ij = _pos[i] - _pos[i];  // Auto-influence
+			//Vec r_ij; 
 			Real q = r_ij.length() / _hVisco;
 			Real density = 0;
 			Real densityNear = 0;
@@ -725,13 +724,13 @@ private:
 			_p[i] = P;
 			_pNear[i] = PNear;
 
-			Vec2f dx(0.f, 0.f);
+			Vec dx(0.f, 0.f);
 			for (const tIndex& j : _neighborsOf[i]) {
 				r_ij = _pos[i] - _pos[j];  // Auto-influence
 				Real q = r_ij.length() / _hVisco;
 				//std::cout << "q=" << q << std::endl;
 				if (q < 1) {
-					Vec2f D =  _dt * _dt *((P * (1 - q)) + (PNear * (1 - q) * (1 - q))) * r_ij.normalize();
+					Vec D =  _dt * _dt *((P * (1 - q)) + (PNear * (1 - q) * (1 - q))) * r_ij.normalize();
 					if (!isBoundary(j)) 
 						_pos[j] += D / 2;
 					dx -= D / 2;
@@ -763,7 +762,7 @@ private:
 	}
 	std::vector<tIndex> getNeighbors_parallel(tIndex particleIndex) {
 		std::vector<tIndex> neighbors;
-		const Vec2f& pos = _pos[particleIndex];
+		const Vec& pos = _pos[particleIndex];
 		const Real supportRadiusSquared = _kernel.supportRadius() * _kernel.supportRadius();
 		int MAX_NEIGHBORS = 100; //1 cells can approximately contain 5 by 5 particle. Multiple by 9 for a block of neighbour
 		neighbors.reserve(MAX_NEIGHBORS);  // Estimation de la taille
@@ -780,7 +779,7 @@ private:
 					#pragma omp parallel for
 					for (int k = 0; k < cell.size(); ++k) {
 						tIndex neighborIndex = cell[k];
-						Vec2f diff = pos - _pos[neighborIndex];
+						Vec diff = pos - _pos[neighborIndex];
 						if (neighborIndex != particleIndex && diff.lengthSquare() < supportRadiusSquared) {
 							neighbors.push_back(neighborIndex);
 						}
@@ -812,7 +811,7 @@ private:
 			std::vector<tIndex> neighbors;
 			for (tIndex j = 0; j < particleCount(); j++)
 			{
-				Vec2f r_ij = _pos[i] - _pos[j];
+				Vec r_ij = _pos[i] - _pos[j];
 				if (std::fabsf(r_ij.length()) < _hVisco )
 				{
 					neighbors.push_back(j);
@@ -830,7 +829,7 @@ private:
 
 		#pragma omp parallel for
 		for (tIndex i = 0; i < particleCount(); ++i) {
-			Vec2f r_ij = _pos[i] - _pos[i];  // Auto-influence
+			Vec r_ij = _pos[i] - _pos[i];  // Auto-influence
 			Real influence = _kernel.w(r_ij);
 			Real density = _m0 * influence;
 			//for (const tIndex& j : getNeighbors_parallel(i)) {
@@ -857,17 +856,17 @@ private:
 		{
 			//int thread_num = omp_get_thread_num();
 			//std::vector<tIndex>& my_leakedParticles = local_leakedParticles[thread_num];
-			Vec2f accel, fpressure, fvisco;
+			Vec accel, fpressure, fvisco;
 
 			#pragma omp for nowait
 			for (int i = 0; i < particleCount(); i++) {
 
-				accel = Vec2f(0, 0);
-				fvisco = Vec2f(0, 0);
-				fpressure = Vec2f(0, 0);
-				Vec2f r_ij = _pos[i] - _pos[i];  // Auto-influence
-				Vec2f u_ij = _vel[i] - _vel[i]; // Auto-influence
-				Vec2f gradW = _kernel.grad_w(r_ij);
+				accel = Vec(0, 0);
+				fvisco = Vec(0, 0);
+				fpressure = Vec(0, 0);
+				Vec r_ij = _pos[i] - _pos[i];  // Auto-influence
+				Vec u_ij = _vel[i] - _vel[i]; // Auto-influence
+				Vec gradW = _kernel.grad_w(r_ij);
 				/*fpressure = gradW *  2 * ((_p[i] / (_d[i] * _d[i])));
 				Real denom = r_ij.dotProduct(r_ij) + (0.01 * _h * _h);
 				fvisco = ((_m0 / _d[i])) * u_ij * (r_ij.dotProduct(gradW) / denom);*/
@@ -890,7 +889,7 @@ private:
 					//for (const tIndex& j : getNeighbors_parallel(i)) {
 					for (const tIndex& j : _neighborsOf[i]) {
 						r_ij = _pos[i] - _pos[j];
-						Vec2f u_ij = _vel[i] - _vel[j];
+						Vec u_ij = _vel[i] - _vel[j];
 						gradW = _kernel.grad_w(r_ij);
 						//pressure
 						fpressure += gradW * ((_p[i] / (_d[i] * _d[i])) + (_p[j] / (_d[j] * _d[j])));
@@ -980,7 +979,7 @@ private:
 					std::vector<tIndex>::const_iterator it = need_res.begin();
 					it < need_res.end();
 					++it) {
-					const Vec2f p0 = _pos[*it];
+					const Vec p0 = _pos[*it];
 					_pos[*it].x = clamp(_pos[*it].x, _l, _r);
 					_pos[*it].y = clamp(_pos[*it].y, _b, _t);
 					_vel[*it] = (_pos[*it] - p0) / _dt;
@@ -1041,12 +1040,12 @@ private:
 	{
 		for (tIndex i = 0; i < particleCount(); ++i) {
 			//density compute
-			Vec2f r_ij = _pos[i] - _pos[i];  // Distance entre la particule i et j
+			Vec r_ij = _pos[i] - _pos[i];  // Distance entre la particule i et j
 			Real influence = _kernel.w(r_ij);
 			Real density = _m0 * influence;
 			std::vector<tIndex> neigh = getNeighbors(i);
 			for (const tIndex& j : neigh) {
-				Vec2f r_ij = _pos[i] - _pos[j];  // Distance entre la particule i et j
+				Vec r_ij = _pos[i] - _pos[j];  // Distance entre la particule i et j
 				Real influence = _kernel.w(r_ij);
 				density += _m0 * influence;
 			}
@@ -1067,20 +1066,20 @@ private:
 #endif
 
 		int thread_num = omp_get_thread_num();
-		Vec2f accel, fpressure, fvisco;
+		Vec accel, fpressure, fvisco;
 		for (int i = 0; i < particleCount(); i++) {
-			accel = Vec2f(0, 0);
-			fpressure = Vec2f(0, 0);
-			fvisco = Vec2f(0, 0);
+			accel = Vec(0, 0);
+			fpressure = Vec(0, 0);
+			fvisco = Vec(0, 0);
 
 #ifdef PARTICLES_AS_BOUNDARIES
 			if (!isBoundary(i)) {
 #endif
 				std::vector<tIndex> neigh = getNeighbors(i);
 				for (const tIndex& j : neigh) {
-					Vec2f r_ij = _pos[i] - _pos[j];
-					Vec2f u_ij = _vel[i] - _vel[j];
-					Vec2f gradW = _kernel.grad_w(r_ij);
+					Vec r_ij = _pos[i] - _pos[j];
+					Vec u_ij = _vel[i] - _vel[j];
+					Vec gradW = _kernel.grad_w(r_ij);
 					//pressure
 					fpressure += gradW * ((_p[i] / (_d[i] * _d[i])) + (_p[j] / (_d[j] * _d[j])));
 
@@ -1152,7 +1151,7 @@ private:
 				std::vector<tIndex>::const_iterator it = need_res.begin();
 				it < need_res.end();
 				++it) {
-				const Vec2f p0 = _pos[*it];
+				const Vec p0 = _pos[*it];
 				_pos[*it].x = clamp(_pos[*it].x, _l, _r);
 				_pos[*it].y = clamp(_pos[*it].y, _b, _t);
 				_vel[*it] = (_pos[*it] - p0) / _dt;
@@ -1185,7 +1184,7 @@ private:
 
 	std::vector<tIndex> getNeighbors(tIndex particleIndex) {
 		std::vector<tIndex> neighbors;
-		const Vec2f& pos = _pos[particleIndex];
+		const Vec& pos = _pos[particleIndex];
 
 		int cellX = static_cast<int>(pos.x);
 		int cellY = static_cast<int>(pos.y);
@@ -1244,7 +1243,7 @@ private:
 
 	void resolveCollisionBoundary(const tIndex& boundary, const tIndex& j) {
 
-		Vec2f r_ij = _pos[boundary] - _pos[j];  // Distance entre la particule boundary et j. r_ij.x = dx, r_ij =dy
+		Vec r_ij = _pos[boundary] - _pos[j];  // Distance entre la particule boundary et j. r_ij.x = dx, r_ij =dy
 		Real distance = r_ij.length();
 
 		if (!checkCollision(distance)) return; //if no collision return
@@ -1299,7 +1298,7 @@ private:
 	for(tIndex i = 0; i < particleCount(); ++i) {
 	  Real density = 0.0;
 	  for (const tIndex& j : getNeighbors(i)) {
-	    Vec2f r_ij = _pos[i] - _pos[j];  // Distance entre la particule i et j
+	    Vec r_ij = _pos[i] - _pos[j];  // Distance entre la particule i et j
 	    Real distance = r_ij.length();
         Real influence = _kernel.w(r_ij);
         density += _m0 * influence;
@@ -1328,9 +1327,9 @@ private:
 	computePressure();
 
 	for (int i = 0; i < particleCount(); ++i) {
-	  Vec2f f(0.f,0.f);
+	  Vec f(0.f,0.f);
 	  for (const tIndex& j : getNeighbors(i)) {
-	    Vec2f r_ij = _pos[i] - _pos[j];  // Distance entre la particule i et j
+	    Vec r_ij = _pos[i] - _pos[j];  // Distance entre la particule i et j
 	    Real distance = r_ij.length();
 	    if (distance < _kernel.supportRadius()) {
 	        f+=_kernel.grad_w(r_ij)*_m0*((_p[i]/(_d[i]*_d[i]))+(_p[j]/(_d[j]*_d[j])));
@@ -1344,12 +1343,12 @@ private:
 	{
 
 	for (int i = 0; i < particleCount(); ++i) {
-	  Vec2f f(0.0, 0.0);
+	  Vec f(0.0, 0.0);
 
 	  for (const tIndex& j : getNeighbors(i)) {
-	    Vec2f x_ij = _pos[i] - _pos[j];
-	    Vec2f u_ij = _vel[i] - _vel[j];
-	    Vec2f gradW = _kernel.grad_w(x_ij);
+	    Vec x_ij = _pos[i] - _pos[j];
+	    Vec u_ij = _vel[i] - _vel[j];
+	    Vec gradW = _kernel.grad_w(x_ij);
 
 	    // Éviter la division par zéro et assurer la stabilité numérique
 	    Real denom = x_ij.dotProduct(x_ij) +  (0.01 * _h * _h);
@@ -1389,7 +1388,7 @@ private:
 	  std::vector<tIndex>::const_iterator it=need_res.begin();
 	  it<need_res.end();
 	  ++it) {
-	  const Vec2f p0 = _pos[*it];
+	  const Vec p0 = _pos[*it];
 	  _pos[*it].x = clamp(_pos[*it].x, _l, _r);
 	  _pos[*it].y = clamp(_pos[*it].y, _b, _t);
 	  _vel[*it] = (_pos[*it] - p0)/_dt;
@@ -1424,9 +1423,9 @@ private:
   const CubicSpline _kernel;
 
   // particle data
-  std::vector<Vec2f> _pos;      // position
-  std::vector<Vec2f> _vel;      // velocity
-  std::vector<Vec2f> _acc;      // acceleration
+  std::vector<Vec> _pos;      // position
+  std::vector<Vec> _vel;      // velocity
+  std::vector<Vec> _acc;      // acceleration
   std::vector<Real>  _p;        // pressure
   std::vector<Real>  _d;        // density
   std::vector<tIndex> leakedParticles; //lost particles
@@ -1455,7 +1454,7 @@ private:
   Real _nu;                     // viscosity coefficient
   Real _d0;                     // rest density
   Real _h;                      // particle spacing (i.e., diameter)
-  Vec2f _g;                     // gravity
+  Vec _g;                     // gravity
 
   Real _m0;                     // rest mass
   Real _k;                      // EOS coefficient
@@ -1479,7 +1478,7 @@ private:
 
   Real _sigma ;					// viscosity factor ( the high it is the more viscous the fluid would be)
   Real _beta;					// quadratic dependance compared with vvelocity. Usefull to avoid particle interpenetration by eliminating high intern speed. SHpuld be non nul
-  std::vector<Vec2f> _posPrevious;      // position
+  std::vector<Vec> _posPrevious;      // position
   //Real _L[1000][1000];			//spring length value between two fluid particles
   std::vector< std::vector<Real> > _L;			//spring length value between two fluid particles
   Real _L0;						// spring rest length
@@ -1493,7 +1492,7 @@ private:
 
 };
 
-SphSolver gSolver(0.08,0.5, 1e3, Vec2f(0, -9.8), 0.01, 7.0);
+SphSolver gSolver(0.08,0.5, 1e3, Vec(0, -9.8), 0.01, 7.0);
 
 
 
