@@ -17,13 +17,9 @@
 // ----------------------------------------------------------------------------
 
 #define _USE_MATH_DEFINES
-
-#define PARALLEL_CPU_VERSION // faster version than FASTVERSION
+#define PARALLEL_CPU_VERSION
 #define ADAPTATIVE_TIME
-
 #define VISCOELASTIC
-//#define SAVEIMAGES
-
 #define IMGUI
 #define THREE_D
 
@@ -512,9 +508,7 @@ public:
 		}else{
 
 		_particles.push_back(Particle(Vec( 0.25f,  0.25f,  0.25f)));
-		_particles.push_back(Particle(Vec( 0.75f,  0.25f, 0.25f)));
-		_particles.push_back(Particle(Vec( 0.25f,  0.75f, 0.25f)));
-		_particles.push_back(Particle(Vec( 0.75f,  0.75f, 0.25f)));
+		
 		}
 
 		_pos = std::vector<Vec>(_particles.size());
@@ -2042,7 +2036,7 @@ void initGLFW()
 
 	gWindow = glfwCreateWindow(
 		gWindowWidth, gWindowHeight,
-		"Viscoelatic fluid simulator", nullptr, nullptr);
+		"Viscoelatic fluids simulator - Adama KOITA", nullptr, nullptr);
 	if (!gWindow) {
 		std::cerr << "ERROR: Failed to open window" << std::endl;
 		glfwTerminate();
@@ -2380,7 +2374,7 @@ void render()
 	ImGui::Checkbox("show grid", &gShowGrid);
 	ImGui::Checkbox("show Velocities", &gShowVel);
 	ImGui::Text("  ");
-	ImGui::Checkbox("Not Template block particles (reset the simulation)", &gTemplateblock);
+	ImGui::Checkbox("Without particle template (reset the simulation)", &gTemplateblock);
 	ImGui::Checkbox("Add particle with mouse", &gAddParticleMode);
 	ImGui::Text("  ");
 	ImGui::Text("Simulation options : ");
