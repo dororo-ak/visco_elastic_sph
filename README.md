@@ -13,7 +13,7 @@
   <img src="images/doubleDensityOneDropAddedMouse.gif" alt="sticky behaviour" width="40%" />
 </p>
 
-## Comparison of viscous SPH simulation and Viscous particle based viscoelastic simulation
+## Comparison of Viscous particle based viscoelastic simulation (left) and viscous SPH simulation (right)
 
 <p align="center">
   <img src="images/veryGluant.gif" alt="sticky behaviour" width="40%" />
